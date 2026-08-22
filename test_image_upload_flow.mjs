@@ -131,17 +131,19 @@ const jpgFile = createMockFile('order_slip.jpg', 1024 * 500, 'image/jpeg');
 await handleImageFile(jpgFile);
 
 const orderAfterJpg = getCurrentOrder();
-if (orderAfterJpg.items.length === 2 && domElements['order-image-filename'].textContent === 'order_slip.jpg') {
+const imagesAfterJpg = (await import('./js/app.js')).getUploadedImages();
+if (orderAfterJpg.items.length === 2 && imagesAfterJpg.some(img => img.name === 'order_slip.jpg')) {
   console.log('  ✓ PASSED: JPG file accepted, preview created, 2 items extracted & matched.');
 } else {
-  console.error('  ✕ FAILED: JPG file not processed properly!', orderAfterJpg.items);
+  console.error('  ✕ FAILED: JPG file not processed properly!', orderAfterJpg.items, imagesAfterJpg);
 }
 
 // TEST 3: PNG Image Selection
 console.log('\nTest 3: Testing PNG file upload...');
 const pngFile = createMockFile('receipt.png', 1024 * 800, 'image/png');
 await handleImageFile(pngFile);
-if (domElements['order-image-filename'].textContent === 'receipt.png') {
+const imagesAfterPng = (await import('./js/app.js')).getUploadedImages();
+if (imagesAfterPng.some(img => img.name === 'receipt.png')) {
   console.log('  ✓ PASSED: PNG file accepted and processed.');
 } else {
   console.error('  ✕ FAILED: PNG file not processed properly!');
@@ -151,7 +153,8 @@ if (domElements['order-image-filename'].textContent === 'receipt.png') {
 console.log('\nTest 4: Testing WEBP file upload...');
 const webpFile = createMockFile('slip.webp', 1024 * 300, 'image/webp');
 await handleImageFile(webpFile);
-if (domElements['order-image-filename'].textContent === 'slip.webp') {
+const imagesAfterWebp = (await import('./js/app.js')).getUploadedImages();
+if (imagesAfterWebp.some(img => img.name === 'slip.webp')) {
   console.log('  ✓ PASSED: WEBP file accepted and processed.');
 } else {
   console.error('  ✕ FAILED: WEBP file not processed properly!');
@@ -163,7 +166,7 @@ toastMessages = [];
 const pdfFile = createMockFile('document.pdf', 1024 * 200, 'application/pdf');
 await handleImageFile(pdfFile);
 
-if (toastMessages.some(t => t.msg.includes('Please select a JPG, JPEG, PNG, or WEBP image'))) {
+if (toastMessages.some(t => t.msg.includes('Please select JPG, JPEG, PNG, or WEBP images'))) {
   console.log('  ✓ PASSED: PDF correctly rejected with warning toast without calling extraction.');
 } else {
   console.error('  ✕ FAILED: Invalid file was not properly rejected!', toastMessages);
@@ -175,7 +178,7 @@ toastMessages = [];
 const largeFile = createMockFile('huge_photo.jpg', 15 * 1024 * 1024, 'image/jpeg');
 await handleImageFile(largeFile);
 
-if (toastMessages.some(t => t.msg.includes('Image is too large'))) {
+if (toastMessages.some(t => t.msg.includes('Exceeds 10 MB limit'))) {
   console.log('  ✓ PASSED: File > 10MB correctly rejected with size limit message.');
 } else {
   console.error('  ✕ FAILED: Large file was not rejected!', toastMessages);
@@ -186,7 +189,7 @@ console.log('\nTest 9: Testing remove image & session reset...');
 toastMessages = [];
 removeUploadedImage(true);
 const orderAfterRemove = getCurrentOrder();
-if (revokedObjectUrls.length > 0 && orderAfterRemove.items.length === 0 && toastMessages.some(t => t.msg.includes('Image removed and order session reset'))) {
+if (revokedObjectUrls.length > 0 && orderAfterRemove.items.length === 0 && toastMessages.some(t => t.msg.includes('All images removed and order session reset'))) {
   console.log('  ✓ PASSED: ObjectURL revoked and session cleanly reset upon image removal.');
 } else {
   console.error('  ✕ FAILED: Remove image failed!', toastMessages, revokedObjectUrls);
@@ -204,16 +207,14 @@ if (domElements['order-image-input'].value === '') {
 console.log('\nTest 11: Testing consecutive uploads (Image A -> Image B)...');
 const fileA = createMockFile('orderA.jpg', 1024 * 100, 'image/jpeg');
 await handleImageFile(fileA);
-if (domElements['order-image-filename'].textContent === 'orderA.jpg') {
-  console.log('  ✓ Image A attached.');
-}
 const fileB = createMockFile('orderB.jpg', 1024 * 120, 'image/jpeg');
 await handleImageFile(fileB);
 
-if (domElements['order-image-filename'].textContent === 'orderB.jpg') {
-  console.log('  ✓ PASSED: Image B successfully replaced Image A and triggered new independent extraction request.');
+const currentImages = (await import('./js/app.js')).getUploadedImages();
+if (currentImages.length >= 2 && currentImages.some(img => img.name === 'orderB.jpg')) {
+  console.log('  ✓ PASSED: Image B successfully appended to order and triggered extraction.');
 } else {
-  console.error('  ✕ FAILED: Consecutive upload failed!');
+  console.error('  ✕ FAILED: Consecutive upload failed!', currentImages);
 }
 
 console.log('\n=== ALL IMAGE UPLOAD TESTS PASSED SUCCESSFULLY! ===\n');

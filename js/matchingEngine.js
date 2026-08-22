@@ -278,7 +278,8 @@ export async function matchAllOrderItems(items) {
       confidence: matchResult.confidence,
       tier: matchResult.tier,
       isManual: false,
-      candidates: matchResult.candidates
+      candidates: matchResult.candidates,
+      sourceImage: item.sourceImage || null
     });
   }
 

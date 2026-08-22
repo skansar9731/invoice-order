@@ -169,11 +169,13 @@
         <!-- Upload Dropzone & Controls -->
         <div class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-5">
 
-          <!-- Dropzone -->
-          <div class="lg:col-span-8">
-            <div id="order-dropzone" tabindex="0" role="button" aria-label="Upload Customer Order Slip"
+          <!-- Dropzone & Multi-Image Gallery -->
+          <div class="lg:col-span-8 space-y-4">
+            
+            <!-- Main Dropzone -->
+            <div id="order-dropzone" tabindex="0" role="button" aria-label="Upload Customer Order Slips"
               class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50/60 hover:bg-slate-100/60 rounded-xl p-6 sm:p-7 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[170px] focus:outline-none focus:ring-2 focus:ring-slate-800">
-              <input type="file" id="order-image-input" accept="image/jpeg,image/png,image/webp" class="hidden">
+              <input type="file" id="order-image-input" accept="image/jpeg,image/png,image/webp" multiple class="hidden">
               <div
                 class="w-12 h-12 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-2xl mb-2 font-bold pointer-events-none">
                 📷
@@ -182,7 +184,7 @@
                 Upload Customer Order Slips
               </div>
               <p class="text-xs text-slate-500 mt-0.5 pointer-events-none">
-                Drag &amp; Drop handwritten order image here
+                Drag &amp; Drop 1 or more handwritten slip images here (preserves order)
               </p>
               <div class="text-[11px] font-bold text-slate-400 my-2 pointer-events-none">
                 OR
@@ -190,12 +192,37 @@
               <button type="button" id="btn-browse-order-image"
                 class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-2">
                 <span>📁</span>
-                <span>Browse Image</span>
+                <span>Browse Images</span>
               </button>
               <p class="text-[11px] text-slate-400 mt-2.5 font-medium pointer-events-none">
-                JPG • JPEG • PNG • WEBP (Max 10 MB)
+                Select single or multiple pages &bull; JPG, JPEG, PNG, WEBP (Max 10 images, 10 MB each)
               </p>
             </div>
+
+            <!-- Uploaded Images Gallery (Shown when 1 or more images attached) -->
+            <div id="image-gallery-container" class="hidden space-y-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200">
+              <div class="flex items-center justify-between pb-2 border-b border-slate-200">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Uploaded Slips</span>
+                  <span id="gallery-image-count" class="text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full">0 Images</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button type="button" id="btn-add-more-images" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+                    <span>+</span>
+                    <span>Add More Images</span>
+                  </button>
+                  <button type="button" id="btn-clear-all-images" class="px-2.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold transition">
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              <!-- Grid of Image Thumbnails -->
+              <div id="image-thumbnails-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                <!-- Dynamically populated thumbnail cards -->
+              </div>
+            </div>
+
           </div>
 
           <!-- Order Metadata Card -->
@@ -225,39 +252,6 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- Image Thumbnail Preview with Change & Remove Buttons -->
-        <div id="image-preview-container"
-          class="hidden mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
-          <div class="flex items-center gap-4">
-            <div
-              class="relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-slate-300 shadow-sm flex-shrink-0 bg-slate-900">
-              <img id="order-image-preview" src="" alt="Order Slip Preview" class="w-full h-full object-cover">
-            </div>
-            <div class="text-xs text-slate-600 space-y-0.5">
-              <div class="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <span>Order Slip Image Attached</span>
-                <span
-                  class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">Active</span>
-              </div>
-              <div id="order-image-filename" class="text-slate-500 font-mono text-[11px] truncate max-w-xs">image.jpg
-              </div>
-              <div class="text-slate-500 text-[11px]">Sent to Gemini 3.6 Flash for handwriting transcription.</div>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 self-end sm:self-center">
-            <button type="button" id="btn-change-image"
-              class="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
-              <span>🔄</span>
-              <span>Change Image</span>
-            </button>
-            <button type="button" id="btn-remove-image"
-              class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
-              <span>✕</span>
-              <span>Remove</span>
-            </button>
-          </div>
         </div>
 
       </div>
@@ -754,14 +748,22 @@
   <!-- FULLSCREEN AI PROCESSING OVERLAY           -->
   <!-- ========================================== -->
   <div id="ai-processing-overlay"
-    class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 animate-in fade-in">
+    class="hidden fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 animate-in fade-in">
     <div
-      class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center">
-      <div class="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-      <div class="text-base font-bold">Interpreting Handwritten Slip</div>
-      <div id="ai-processing-step" class="text-xs text-slate-300 mt-2">1/2: AI analyzing handwriting...</div>
-      <div class="text-[11px] text-slate-400 mt-3 bg-slate-900/60 px-3 py-1.5 rounded-md border border-slate-700">
-        Matching with local 7,000+ spare parts database
+      class="bg-slate-800 border border-slate-700 p-6 sm:p-7 rounded-2xl shadow-2xl flex flex-col items-center max-w-md w-full text-center space-y-4">
+      <div class="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+      <div>
+        <div class="text-base font-bold">Extracting Customer Order Slips</div>
+        <div id="ai-processing-step" class="text-xs text-slate-300 mt-1">Processing image 1 of 1...</div>
+      </div>
+      
+      <!-- Multi-image status tracker -->
+      <div id="ai-processing-pages-list" class="w-full space-y-1.5 max-h-40 overflow-y-auto text-left text-xs bg-slate-900/60 p-3 rounded-lg border border-slate-700">
+        <!-- Injected page rows: "Page 1: Extracting... / Completed (5 items)" -->
+      </div>
+
+      <div class="text-[11px] text-slate-400 bg-slate-900/40 px-3 py-1.5 rounded-md border border-slate-700/60 w-full">
+        Gemini 3.6 Flash &bull; Local 5,276 Product Master Matching
       </div>
     </div>
   </div>

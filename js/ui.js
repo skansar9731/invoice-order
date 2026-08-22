@@ -157,6 +157,7 @@ export function renderOrderTable() {
       <td class="px-3 py-3">
         <div class="font-medium text-slate-800 text-sm flex items-center gap-2">
           <span>${escapeHtml(item.customerText)}</span>
+          ${item.sourceImage ? `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-mono font-bold" title="Extracted from Image #${item.sourceImage}">#P${item.sourceImage}</span>` : ''}
           <button data-action="edit-customer-text" data-item-id="${item.id}" title="Edit customer handwritten wording" class="text-slate-400 hover:text-slate-600 text-xs">✎</button>
         </div>
       </td>

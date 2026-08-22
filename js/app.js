@@ -121,17 +121,22 @@ function initAppNavigation() {
   });
 }
 
-let currentImageObjectURL = null;
+// Multi-Image State Management (Preserves exact sequence of images)
+export let uploadedImages = []; // [{ id, file, objectUrl, name, size, status, extractedItems, error }]
+
+export function getUploadedImages() {
+  return uploadedImages;
+}
 
 /**
- * Order Entry Flow & Image Upload Event Listeners
+ * Order Entry Flow & Multi-Image Upload Event Listeners
  */
 function initOrderEntryEvents() {
   const fileInput = document.getElementById('order-image-input');
   const dropZone = document.getElementById('order-dropzone');
   const btnBrowseOrderImage = document.getElementById('btn-browse-order-image');
-  const btnChangeImage = document.getElementById('btn-change-image');
-  const btnRemoveImage = document.getElementById('btn-remove-image');
+  const btnAddMoreImages = document.getElementById('btn-add-more-images');
+  const btnClearAllImages = document.getElementById('btn-clear-all-images');
   const btnNewOrder = document.getElementById('btn-new-order');
   const customerNameInput = document.getElementById('order-customer-name');
   const btnAddManualItem = document.getElementById('btn-add-manual-item');
@@ -146,18 +151,34 @@ function initOrderEntryEvents() {
   // New Order Button
   if (btnNewOrder) {
     btnNewOrder.addEventListener('click', () => {
-      if (confirm('Start a new order? This will clear the current session.')) {
-        removeUploadedImage(false);
+      if (confirm('Start a new order? This will clear the current session and all uploaded images.')) {
+        clearAllImages(false);
         showToast('New order session started', 'info');
       }
     });
   }
 
-  // Browse Image Button click -> Trigger File Input
+  // Browse Images Button click -> Trigger File Input
   if (btnBrowseOrderImage) {
     btnBrowseOrderImage.addEventListener('click', (e) => {
       e.stopPropagation();
       if (fileInput) fileInput.click();
+    });
+  }
+
+  // Add More Images Button click -> Trigger File Input
+  if (btnAddMoreImages) {
+    btnAddMoreImages.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (fileInput) fileInput.click();
+    });
+  }
+
+  // Clear All Images Button
+  if (btnClearAllImages) {
+    btnClearAllImages.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearAllImages(true);
     });
   }
 
@@ -175,7 +196,7 @@ function initOrderEntryEvents() {
       }
     });
 
-    // Drag & Drop handlers
+    // Drag & Drop handlers (supports single & multiple files)
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
@@ -196,9 +217,9 @@ function initOrderEntryEvents() {
       e.preventDefault();
       e.stopPropagation();
       const dt = e.dataTransfer;
-      const file = dt?.files?.[0];
-      if (file) {
-        handleImageFile(file);
+      const files = dt?.files;
+      if (files && files.length > 0) {
+        handleImageFiles(files);
       }
     });
   }
@@ -206,26 +227,10 @@ function initOrderEntryEvents() {
   // Real File Input Change
   if (fileInput) {
     fileInput.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        handleImageFile(file);
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        handleImageFiles(files);
       }
-    });
-  }
-
-  // Change Image Button
-  if (btnChangeImage) {
-    btnChangeImage.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (fileInput) fileInput.click();
-    });
-  }
-
-  // Remove Image Button
-  if (btnRemoveImage) {
-    btnRemoveImage.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeUploadedImage(true);
     });
   }
 
@@ -244,147 +249,409 @@ function initOrderEntryEvents() {
 }
 
 /**
- * Single unified processing function for both Browse and Drag & Drop image files
- * @param {File} file - Selected or dropped browser File object
+ * Handle addition of 1 or more image files
+ * Preserves the exact user-provided sequence
+ * @param {FileList | File[] | File} filesInput
  */
-export async function handleImageFile(file) {
-  if (!file) return;
+export async function handleImageFiles(filesInput) {
+  if (!filesInput) return;
 
-  // 1. Validate File type / MIME type (.jpg, .jpeg, .png, .webp)
+  let rawFiles = [];
+  if (Array.isArray(filesInput)) {
+    rawFiles = filesInput;
+  } else if (typeof FileList !== 'undefined' && filesInput instanceof FileList) {
+    rawFiles = Array.from(filesInput);
+  } else if (filesInput && typeof filesInput.length === 'number' && typeof filesInput.item === 'function') {
+    rawFiles = Array.from(filesInput);
+  } else if (filesInput && (filesInput instanceof Blob || typeof filesInput.name === 'string')) {
+    rawFiles = [filesInput];
+  } else if (filesInput && typeof filesInput[Symbol.iterator] === 'function') {
+    rawFiles = Array.from(filesInput);
+  } else {
+    rawFiles = [filesInput];
+  }
+
+  if (rawFiles.length === 0) return;
+
+  // Check maximum 10 images limit
+  const MAX_IMAGES = 10;
+  const availableSlots = MAX_IMAGES - uploadedImages.length;
+  if (availableSlots <= 0) {
+    showToast(`Maximum limit of ${MAX_IMAGES} images per order reached.`, 'warning');
+    const fileInput = document.getElementById('order-image-input');
+    if (fileInput) fileInput.value = '';
+    return;
+  }
+
+  const filesToAdd = rawFiles.slice(0, availableSlots);
+  if (rawFiles.length > availableSlots) {
+    showToast(`Only ${availableSlots} more image(s) can be added (max ${MAX_IMAGES}).`, 'warning');
+  }
+
   const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
   const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
-  const fileName = file.name || '';
-  const fileExt = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
-  const isValidType = validTypes.includes(file.type) || validExts.includes(fileExt);
-
-  if (!isValidType) {
-    showToast('Please select a JPG, JPEG, PNG, or WEBP image.', 'warning');
-    const fileInput = document.getElementById('order-image-input');
-    if (fileInput) fileInput.value = '';
-    return;
-  }
-
-  // 2. Validate File size (Max 10 MB)
   const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
-  if (file.size > MAX_SIZE_BYTES) {
-    showToast('Image is too large. Please upload an image under 10 MB.', 'warning');
-    const fileInput = document.getElementById('order-image-input');
-    if (fileInput) fileInput.value = '';
-    return;
-  }
 
-  // 3. Reset input value so re-selecting the SAME file triggers change event again
-  const fileInput = document.getElementById('order-image-input');
-  if (fileInput) fileInput.value = '';
+  const newlyAddedImages = [];
+  let invalidCount = 0;
+  let oversizedCount = 0;
 
-  // 4. Clear previous extracted order items, matching results, confidence, and manual selections
-  const fresh = resetOrder();
-  const customerNameInput = document.getElementById('order-customer-name');
-  const orderNumberInput = document.getElementById('order-number-display');
-  if (customerNameInput) customerNameInput.value = '';
-  if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
+  for (let i = 0; i < filesToAdd.length; i++) {
+    const file = filesToAdd[i];
+    const fileName = file.name || `image_${Date.now()}_${i}.jpg`;
+    const fileExt = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+    const isValidType = validTypes.includes(file.type) || validExts.includes(fileExt);
 
-  // 5. Update image preview with URL.createObjectURL (and revoke previous URL to prevent memory leaks)
-  if (currentImageObjectURL) {
-    try {
-      URL.revokeObjectURL(currentImageObjectURL);
-    } catch (e) {}
-    currentImageObjectURL = null;
-  }
-
-  if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-    try {
-      currentImageObjectURL = URL.createObjectURL(file);
-    } catch (e) {}
-  }
-
-  const previewImg = document.getElementById('order-image-preview');
-  const previewContainer = document.getElementById('image-preview-container');
-  const filenameEl = document.getElementById('order-image-filename');
-
-  if (previewImg && currentImageObjectURL) {
-    previewImg.src = currentImageObjectURL;
-  }
-  if (filenameEl) {
-    filenameEl.textContent = file.name || 'Handwritten Slip';
-  }
-  if (previewContainer) {
-    previewContainer.classList.remove('hidden');
-  }
-
-  // 6. Start a NEW extraction request with the actual File object
-  await processOrderExtraction(file);
-}
-
-/**
- * Remove active image and reset order session
- */
-export function removeUploadedImage(showNotification = true) {
-  if (currentImageObjectURL) {
-    try {
-      URL.revokeObjectURL(currentImageObjectURL);
-    } catch (e) {}
-    currentImageObjectURL = null;
-  }
-
-  const previewContainer = document.getElementById('image-preview-container');
-  const previewImg = document.getElementById('order-image-preview');
-  const fileInput = document.getElementById('order-image-input');
-  const customerNameInput = document.getElementById('order-customer-name');
-  const orderNumberInput = document.getElementById('order-number-display');
-
-  if (previewContainer) previewContainer.classList.add('hidden');
-  if (previewImg) previewImg.src = '';
-  if (fileInput) fileInput.value = '';
-
-  const fresh = resetOrder();
-  if (customerNameInput) customerNameInput.value = '';
-  if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
-
-  if (showNotification) {
-    showToast('Image removed and order session reset.', 'info');
-  }
-}
-
-/**
- * Run AI extraction on selected image and match items locally
- * Passes the actual File object to extractOrderFromImage
- */
-async function processOrderExtraction(imageFile) {
-  const processingOverlay = document.getElementById('ai-processing-overlay');
-  const processingStepEl = document.getElementById('ai-processing-step');
-
-  try {
-    if (processingOverlay) {
-      processingOverlay.classList.remove('hidden');
-      if (processingStepEl) processingStepEl.textContent = 'Sending handwritten slip to AI extraction service...';
+    if (!isValidType) {
+      invalidCount++;
+      continue;
     }
 
-    // Step 1: AI Transcription (Accepts real File object, calls Netlify / Gemini)
-    const extractedItems = await extractOrderFromImage(imageFile);
+    if (file.size > MAX_SIZE_BYTES) {
+      oversizedCount++;
+      continue;
+    }
+
+    let objectUrl = '';
+    if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      try {
+        objectUrl = URL.createObjectURL(file);
+      } catch (e) {}
+    }
+
+    const imgRecord = {
+      id: `img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      file,
+      objectUrl,
+      name: fileName,
+      size: file.size,
+      status: 'pending', // 'pending' | 'extracting' | 'completed' | 'error'
+      extractedItems: [],
+      error: null
+    };
+
+    newlyAddedImages.push(imgRecord);
+  }
+
+  // Reset file input value so selecting the same file consecutively triggers change event
+  const fileInput = document.getElementById('order-image-input');
+  if (fileInput) fileInput.value = '';
+
+  if (invalidCount > 0) {
+    showToast(`${invalidCount} file(s) ignored: Please select JPG, JPEG, PNG, or WEBP images.`, 'warning');
+  }
+  if (oversizedCount > 0) {
+    showToast(`${oversizedCount} image(s) ignored: Exceeds 10 MB limit.`, 'warning');
+  }
+
+  if (newlyAddedImages.length === 0) return;
+
+  // Append new images preserving exact sequence
+  uploadedImages.push(...newlyAddedImages);
+  renderImageGallery();
+
+  // Process extraction for all pending images
+  await processBatchExtraction();
+}
+
+// Backward compatibility alias for single image calls
+export async function handleImageFile(file) {
+  return handleImageFiles(file);
+}
+
+/**
+ * Process extraction for all pending images in sequential order
+ */
+export async function processBatchExtraction() {
+  const pendingImages = uploadedImages.filter(img => img.status === 'pending');
+  if (pendingImages.length === 0) return;
+
+  const overlay = document.getElementById('ai-processing-overlay');
+  const stepEl = document.getElementById('ai-processing-step');
+  const pagesListEl = document.getElementById('ai-processing-pages-list');
+
+  if (overlay) overlay.classList.remove('hidden');
+
+  const total = uploadedImages.length;
+
+  for (let i = 0; i < uploadedImages.length; i++) {
+    const imgRecord = uploadedImages[i];
+    if (imgRecord.status !== 'pending') continue;
+
+    imgRecord.status = 'extracting';
+    renderImageGallery();
+
+    if (stepEl) {
+      stepEl.textContent = `Extracting image ${i + 1} of ${total}: "${imgRecord.name}"...`;
+    }
+
+    if (pagesListEl) {
+      renderProcessingOverlayList(pagesListEl, i);
+    }
+
+    try {
+      // Pass actual File object to existing extractOrderFromImage
+      const rawItems = await extractOrderFromImage(imgRecord.file);
+      
+      // Tag items with sourceImage number (1-based index)
+      imgRecord.extractedItems = (rawItems || []).map(item => ({
+        customerText: item.customerText,
+        quantity: item.quantity,
+        sourceImage: i + 1
+      }));
+      imgRecord.status = 'completed';
+      imgRecord.error = null;
+    } catch (err) {
+      console.warn(`Extraction error for image ${i + 1} (${imgRecord.name}):`, err.message);
+      imgRecord.status = 'error';
+      imgRecord.error = err.message || 'Extraction failed';
+      imgRecord.extractedItems = [];
+    }
+
+    renderImageGallery();
+    if (pagesListEl) {
+      renderProcessingOverlayList(pagesListEl, i);
+    }
+  }
+
+  if (overlay) overlay.classList.add('hidden');
+
+  // Merge all extracted items in exact sequential image order
+  await syncOrderItemsFromImages();
+}
+
+/**
+ * Render the status of all images inside the AI processing overlay
+ */
+function renderProcessingOverlayList(containerEl, activeIndex) {
+  if (!containerEl) return;
+  containerEl.innerHTML = uploadedImages.map((img, idx) => {
+    let statusText = 'Waiting...';
+    let statusColor = 'text-slate-400';
+    if (img.status === 'completed') {
+      statusText = `✓ Completed (${img.extractedItems.length} items)`;
+      statusColor = 'text-emerald-400 font-semibold';
+    } else if (img.status === 'extracting') {
+      statusText = '⏳ Extracting handwriting...';
+      statusColor = 'text-sky-300 font-semibold animate-pulse';
+    } else if (img.status === 'error') {
+      statusText = `✕ Failed (${img.error || 'Error'})`;
+      statusColor = 'text-rose-400 font-semibold';
+    }
+    return `
+      <div class="flex items-center justify-between text-xs py-1 border-b border-slate-800/80 last:border-0">
+        <span class="font-medium text-slate-200">Image ${idx + 1}: ${escapeHtml(img.name)}</span>
+        <span class="${statusColor}">${statusText}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+/**
+ * Merge extracted items from all images in sequential order and run local matching
+ */
+export async function syncOrderItemsFromImages() {
+  const allExtractedItems = [];
+  let completedCount = 0;
+  let failedImages = [];
+
+  uploadedImages.forEach((img, idx) => {
+    if (img.status === 'completed' && Array.isArray(img.extractedItems)) {
+      completedCount++;
+      img.extractedItems.forEach(item => {
+        allExtractedItems.push({
+          customerText: item.customerText,
+          quantity: item.quantity,
+          sourceImage: idx + 1
+        });
+      });
+    } else if (img.status === 'error') {
+      failedImages.push(`Image ${idx + 1}`);
+    }
+  });
+
+  if (allExtractedItems.length > 0) {
+    // Step 2: Match against local IndexedDB Product Master
+    const matchedItems = await matchAllOrderItems(allExtractedItems);
+    setOrderItems(matchedItems);
     updateAIStatusBadge(true);
 
-    if (processingStepEl) {
-      processingStepEl.textContent = `Matching ${extractedItems.length} items against local product master...`;
+    if (failedImages.length > 0) {
+      showToast(`${failedImages.join(', ')} failed. Extracted ${matchedItems.length} items from ${completedCount} image(s).`, 'warning', 7000);
+    } else {
+      showToast(`Successfully extracted ${matchedItems.length} items from ${completedCount} image(s)!`, 'success');
     }
-
-    // Step 2: Match against local IndexedDB Product Master
-    const matchedItems = await matchAllOrderItems(extractedItems);
-
-    // Step 3: Populate Order Items
-    setOrderItems(matchedItems);
-
-    showToast(`Successfully extracted and matched ${matchedItems.length} order items!`, 'success');
-  } catch (err) {
-    console.warn('AI Order extraction info:', err.message);
+  } else if (failedImages.length > 0) {
     updateAIStatusBadge(false);
-    // Show clear, safe message when AI call fails or is not configured
-    showToast(err.message, 'warning', 6000);
-  } finally {
-    if (processingOverlay) {
-      processingOverlay.classList.add('hidden');
-    }
+    showToast(`Failed to extract items from ${failedImages.join(', ')}. Please retry.`, 'warning', 7000);
+  } else {
+    resetOrder();
   }
+}
+
+/**
+ * Retry extraction for a specific failed image
+ */
+export async function retryImageExtraction(imageId) {
+  const imgRecord = uploadedImages.find(img => img.id === imageId);
+  if (!imgRecord) return;
+
+  imgRecord.status = 'pending';
+  imgRecord.error = null;
+  renderImageGallery();
+  await processBatchExtraction();
+}
+
+/**
+ * Remove a specific image by ID and re-sync order
+ */
+export async function removeImageById(imageId) {
+  const idx = uploadedImages.findIndex(img => img.id === imageId);
+  if (idx < 0) return;
+
+  const removed = uploadedImages[idx];
+  if (removed && removed.objectUrl) {
+    try {
+      URL.revokeObjectURL(removed.objectUrl);
+    } catch (e) {}
+  }
+
+  uploadedImages.splice(idx, 1);
+
+  // Re-number remaining images
+  uploadedImages.forEach((img, i) => {
+    if (Array.isArray(img.extractedItems)) {
+      img.extractedItems.forEach(item => {
+        item.sourceImage = i + 1;
+      });
+    }
+  });
+
+  renderImageGallery();
+  await syncOrderItemsFromImages();
+  showToast('Image removed from order.', 'info');
+}
+
+/**
+ * Clear all images and reset order session
+ */
+export function clearAllImages(showNotification = true) {
+  uploadedImages.forEach(img => {
+    if (img.objectUrl) {
+      try {
+        URL.revokeObjectURL(img.objectUrl);
+      } catch (e) {}
+    }
+  });
+  uploadedImages.length = 0;
+
+  const fileInput = document.getElementById('order-image-input');
+  const customerNameInput = document.getElementById('order-customer-name');
+  const orderNumberInput = document.getElementById('order-number-display');
+
+  if (fileInput) fileInput.value = '';
+
+  const fresh = resetOrder();
+  if (customerNameInput) customerNameInput.value = '';
+  if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
+
+  renderImageGallery();
+
+  if (showNotification) {
+    showToast('All images removed and order session reset.', 'info');
+  }
+}
+
+// Backward compatibility alias for single image remove
+export function removeUploadedImage(showNotification = true) {
+  return clearAllImages(showNotification);
+}
+
+/**
+ * Render Image Gallery UI cards
+ */
+export function renderImageGallery() {
+  const galleryContainer = document.getElementById('image-gallery-container');
+  const dropzone = document.getElementById('order-dropzone');
+  const grid = document.getElementById('image-thumbnails-grid');
+  const countEl = document.getElementById('gallery-image-count');
+
+  if (!galleryContainer || !grid) return;
+
+  if (uploadedImages.length === 0) {
+    galleryContainer.classList.add('hidden');
+    if (dropzone) dropzone.classList.remove('hidden');
+    return;
+  }
+
+  galleryContainer.classList.remove('hidden');
+  if (countEl) {
+    countEl.textContent = `${uploadedImages.length} ${uploadedImages.length === 1 ? 'Image' : 'Images'}`;
+  }
+
+  grid.innerHTML = uploadedImages.map((img, idx) => {
+    let statusBadge = '';
+    if (img.status === 'completed') {
+      statusBadge = `<span class="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">✓ ${img.extractedItems.length} Items</span>`;
+    } else if (img.status === 'extracting') {
+      statusBadge = `<span class="text-[10px] px-1.5 py-0.5 bg-sky-100 text-sky-800 rounded font-semibold animate-pulse">⏳ Reading...</span>`;
+    } else if (img.status === 'error') {
+      statusBadge = `
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-semibold">✕ Failed</span>
+          <button type="button" data-retry-img="${escapeHtml(img.id)}" class="text-[10px] text-sky-700 hover:text-sky-900 font-bold underline">Retry</button>
+        </div>
+      `;
+    } else {
+      statusBadge = `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">Queued</span>`;
+    }
+
+    return `
+      <div class="relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition">
+        <!-- Sequence Badge (#1, #2...) -->
+        <div class="absolute top-1.5 left-1.5 z-10 px-1.5 py-0.5 bg-slate-900/80 text-white rounded text-[10px] font-mono font-bold shadow-sm backdrop-blur-xs">
+          #${idx + 1}
+        </div>
+        
+        <!-- Delete Button -->
+        <button type="button" data-remove-img="${escapeHtml(img.id)}" title="Remove this image" class="absolute top-1.5 right-1.5 z-10 w-6 h-6 rounded-full bg-white/90 hover:bg-rose-600 hover:text-white text-slate-600 flex items-center justify-center text-xs font-bold shadow-sm transition border border-slate-200">
+          ✕
+        </button>
+
+        <!-- Thumbnail Image -->
+        <div class="h-24 bg-slate-900 flex items-center justify-center overflow-hidden">
+          ${img.objectUrl ? `<img src="${img.objectUrl}" alt="Page ${idx + 1}" class="w-full h-full object-cover">` : `<div class="text-slate-400 text-xs">📷</div>`}
+        </div>
+
+        <!-- Info & Status -->
+        <div class="p-2 space-y-1 bg-white">
+          <div class="font-mono text-[10px] font-semibold text-slate-800 truncate" title="${escapeHtml(img.name)}">
+            ${escapeHtml(img.name)}
+          </div>
+          <div class="flex items-center justify-between">
+            ${statusBadge}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach Retry and Remove listeners
+  grid.querySelectorAll('[data-remove-img]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.removeImg;
+      removeImageById(id);
+    });
+  });
+
+  grid.querySelectorAll('[data-retry-img]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.retryImg;
+      retryImageExtraction(id);
+    });
+  });
 }
 
 
