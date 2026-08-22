@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Maharashtra Automobile — AI Handwritten Order to Busy Entry Sheet</title>
-  <meta name="description" content="Local-first intelligent PWA to convert handwritten spare parts orders into structured part numbers for manual entry into Busy accounting software.">
+  <meta name="description"
+    content="Local-first intelligent PWA to convert handwritten spare parts orders into structured part numbers for manual entry into Busy accounting software.">
   <meta name="theme-color" content="#0f172a">
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/svg+xml" href="./assets/icons/icon.svg">
@@ -12,7 +14,9 @@
   <!-- Google Fonts: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+    rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -51,22 +55,27 @@
   <!-- Custom Styles -->
   <link rel="stylesheet" href="./css/styles.css">
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans antialiased selection:bg-slate-900 selection:text-white">
+
+<body
+  class="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans antialiased selection:bg-slate-900 selection:text-white">
 
   <!-- TOP HEADER -->
   <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
-        
+
         <!-- Brand & Title -->
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-inner font-bold text-white text-lg">
+          <div
+            class="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-inner font-bold text-white text-lg">
             MA
           </div>
           <div>
             <div class="flex items-center gap-2">
               <h1 class="text-base sm:text-lg font-extrabold tracking-tight">MAHARASHTRA AUTOMOBILE</h1>
-              <span class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">PWA Local</span>
+              <span
+                class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">PWA
+                Local</span>
             </div>
             <p class="text-xs text-slate-400">AI Handwritten Order &rarr; Busy Entry Sheet Utility</p>
           </div>
@@ -74,9 +83,10 @@
 
         <!-- Header Stats & Status -->
         <div class="flex items-center gap-3">
-          
+
           <!-- Master Count Badge -->
-          <div class="hidden sm:flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs">
+          <div
+            class="hidden sm:flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/60 text-xs">
             <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
             <span class="text-slate-400">Master:</span>
             <span id="stat-product-count" class="font-bold text-white">0</span>
@@ -84,12 +94,14 @@
           </div>
 
           <!-- AI Status Badge -->
-          <span id="stat-ai-status" class="text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          <span id="stat-ai-status"
+            class="text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
             AI: Not Connected
           </span>
 
           <!-- Offline Indicator -->
-          <div id="offline-indicator" class="hidden flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded text-xs font-bold">
+          <div id="offline-indicator"
+            class="hidden flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded text-xs font-bold">
             <span>⚠ Offline Mode</span>
           </div>
 
@@ -102,16 +114,20 @@
     <div class="bg-slate-800/90 border-t border-slate-700/50">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <nav class="flex space-x-1 py-1.5 overflow-x-auto" aria-label="Tabs">
-          <button data-tab-target="tab-order" class="px-3.5 py-1.5 rounded-md text-xs font-bold bg-slate-900 text-white shadow-sm transition whitespace-nowrap">
+          <button data-tab-target="tab-order"
+            class="px-3.5 py-1.5 rounded-md text-xs font-bold bg-slate-900 text-white shadow-sm transition whitespace-nowrap">
             📝 Customer Order Entry
           </button>
-          <button data-tab-target="tab-stock" class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
+          <button data-tab-target="tab-stock"
+            class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
             📦 Product Master &amp; Stock Import
           </button>
-          <button data-tab-target="tab-search" class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
+          <button data-tab-target="tab-search"
+            class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
             🔍 Quick Part Lookup
           </button>
-          <button data-tab-target="tab-settings" class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
+          <button data-tab-target="tab-settings"
+            class="px-3.5 py-1.5 rounded-md text-xs font-bold text-slate-300 hover:bg-slate-700/50 hover:text-white transition whitespace-nowrap">
             ⚙️ AI &amp; Settings
           </button>
         </nav>
@@ -126,14 +142,14 @@
     <!-- TAB 1: ORDER ENTRY & REVIEW (MAIN SCREEN)  -->
     <!-- ========================================== -->
     <section id="tab-order" class="tab-content space-y-6">
-      
+
       <!-- Top Action Hero Card: Upload Handwritten Order -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 sm:p-6 transition hover:shadow-md">
-        
+
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
-              <span>1. Upload Customer Order Slip</span>
+              <span>1. Upload Customer Order Slips</span>
               <span class="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Step 1</span>
             </h2>
             <p class="text-xs text-slate-500 mt-0.5">
@@ -142,7 +158,8 @@
           </div>
 
           <div class="flex items-center gap-2">
-            <span class="text-xs text-emerald-600 font-semibold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
+            <span
+              class="text-xs text-emerald-600 font-semibold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>AI: Gemini 3.6 Flash Active</span>
             </span>
@@ -151,16 +168,18 @@
 
         <!-- Upload Dropzone & Controls -->
         <div class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-5">
-          
+
           <!-- Dropzone -->
           <div class="lg:col-span-8">
-            <div id="order-dropzone" tabindex="0" role="button" aria-label="Upload Customer Order Slip" class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50/60 hover:bg-slate-100/60 rounded-xl p-6 sm:p-7 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[170px] focus:outline-none focus:ring-2 focus:ring-slate-800">
+            <div id="order-dropzone" tabindex="0" role="button" aria-label="Upload Customer Order Slip"
+              class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50/60 hover:bg-slate-100/60 rounded-xl p-6 sm:p-7 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[170px] focus:outline-none focus:ring-2 focus:ring-slate-800">
               <input type="file" id="order-image-input" accept="image/jpeg,image/png,image/webp" class="hidden">
-              <div class="w-12 h-12 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-2xl mb-2 font-bold pointer-events-none">
+              <div
+                class="w-12 h-12 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-2xl mb-2 font-bold pointer-events-none">
                 📷
               </div>
               <div class="text-sm font-bold text-slate-800 pointer-events-none">
-                Upload Customer Order Slip
+                Upload Customer Order Slips
               </div>
               <p class="text-xs text-slate-500 mt-0.5 pointer-events-none">
                 Drag &amp; Drop handwritten order image here
@@ -168,7 +187,8 @@
               <div class="text-[11px] font-bold text-slate-400 my-2 pointer-events-none">
                 OR
               </div>
-              <button type="button" id="btn-browse-order-image" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-2">
+              <button type="button" id="btn-browse-order-image"
+                class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-2">
                 <span>📁</span>
                 <span>Browse Image</span>
               </button>
@@ -182,19 +202,24 @@
           <div class="lg:col-span-4 bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Order Details</span>
-              <span id="order-number-display" class="text-xs font-mono font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">ORD-AUTO</span>
+              <span id="order-number-display"
+                class="text-xs font-mono font-bold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">ORD-AUTO</span>
             </div>
 
             <div>
-              <label for="order-customer-name" class="block text-xs font-semibold text-slate-700 mb-1">Customer / Garage Name</label>
-              <input type="text" id="order-customer-name" placeholder="e.g. Ramesh Auto Works / Santosh" class="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-slate-800 focus:outline-none">
+              <label for="order-customer-name" class="block text-xs font-semibold text-slate-700 mb-1">Customer / Garage
+                Name</label>
+              <input type="text" id="order-customer-name" placeholder="e.g. Ramesh Auto Works / Santosh"
+                class="w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 focus:ring-2 focus:ring-slate-800 focus:outline-none">
             </div>
 
             <div class="flex items-center justify-between pt-1 text-xs">
-              <button id="btn-add-manual-item" class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 px-3 py-1.5 rounded-md border border-slate-300 transition shadow-sm">
+              <button id="btn-add-manual-item"
+                class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-100 px-3 py-1.5 rounded-md border border-slate-300 transition shadow-sm">
                 + Add Item Manually
               </button>
-              <button id="btn-new-order" class="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-md transition">
+              <button id="btn-new-order"
+                class="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-md transition">
                 Reset / New Order
               </button>
             </div>
@@ -203,26 +228,32 @@
         </div>
 
         <!-- Image Thumbnail Preview with Change & Remove Buttons -->
-        <div id="image-preview-container" class="hidden mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
+        <div id="image-preview-container"
+          class="hidden mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/80 p-4 rounded-xl border border-slate-200">
           <div class="flex items-center gap-4">
-            <div class="relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-slate-300 shadow-sm flex-shrink-0 bg-slate-900">
+            <div
+              class="relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-slate-300 shadow-sm flex-shrink-0 bg-slate-900">
               <img id="order-image-preview" src="" alt="Order Slip Preview" class="w-full h-full object-cover">
             </div>
             <div class="text-xs text-slate-600 space-y-0.5">
               <div class="font-bold text-slate-900 text-sm flex items-center gap-2">
                 <span>Order Slip Image Attached</span>
-                <span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">Active</span>
+                <span
+                  class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-semibold">Active</span>
               </div>
-              <div id="order-image-filename" class="text-slate-500 font-mono text-[11px] truncate max-w-xs">image.jpg</div>
+              <div id="order-image-filename" class="text-slate-500 font-mono text-[11px] truncate max-w-xs">image.jpg
+              </div>
               <div class="text-slate-500 text-[11px]">Sent to Gemini 3.6 Flash for handwriting transcription.</div>
             </div>
           </div>
           <div class="flex items-center gap-2 self-end sm:self-center">
-            <button type="button" id="btn-change-image" class="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+            <button type="button" id="btn-change-image"
+              class="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
               <span>🔄</span>
               <span>Change Image</span>
             </button>
-            <button type="button" id="btn-remove-image" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+            <button type="button" id="btn-remove-image"
+              class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
               <span>✕</span>
               <span>Remove</span>
             </button>
@@ -233,43 +264,50 @@
 
       <!-- REVIEW & MATCHING TABLE CARD -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        
+
         <!-- Table Card Header & Summary Bar -->
-        <div class="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          
+        <div
+          class="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+
           <div>
             <h2 class="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
               <span>2. Review Matched Products</span>
               <span class="text-xs font-semibold px-2 py-0.5 bg-sky-100 text-sky-800 rounded">Step 2</span>
             </h2>
             <p class="text-xs text-slate-500 mt-0.5">
-              Verify exact part numbers and quantities. Click <b>Select Manually</b> to search and bind items from product master.
+              Verify exact part numbers and quantities. Click <b>Select Manually</b> to search and bind items from
+              product master.
             </p>
           </div>
 
           <!-- Summary Badges & PDF Button -->
           <div class="flex flex-wrap items-center gap-3">
-            
+
             <div id="order-summary-bar" class="flex items-center gap-2 text-xs">
-              <span class="px-2.5 py-1 bg-white border border-slate-200 rounded-md font-semibold text-slate-700 shadow-sm">
+              <span
+                class="px-2.5 py-1 bg-white border border-slate-200 rounded-md font-semibold text-slate-700 shadow-sm">
                 Total: <b id="summary-total-items" class="text-slate-900">0</b>
               </span>
-              <span class="px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-md font-semibold text-emerald-800">
+              <span
+                class="px-2.5 py-1 bg-emerald-50 border border-emerald-200 rounded-md font-semibold text-emerald-800">
                 Matched: <b id="summary-matched-items">0</b>
               </span>
               <span class="px-2.5 py-1 bg-sky-50 border border-sky-200 rounded-md font-semibold text-sky-800">
                 Manual: <b id="summary-manual-items">0</b>
               </span>
-              <span id="summary-unmatched-badge" class="hidden px-2.5 py-1 bg-rose-100 border border-rose-300 rounded-md font-bold text-rose-700 animate-pulse">
+              <span id="summary-unmatched-badge"
+                class="hidden px-2.5 py-1 bg-rose-100 border border-rose-300 rounded-md font-bold text-rose-700 animate-pulse">
                 ⚠ Unmatched: <b id="summary-unmatched-items">0</b>
               </span>
-              <span id="summary-lowstock-badge" class="hidden px-2.5 py-1 bg-amber-100 border border-amber-300 rounded-md font-semibold text-amber-800">
+              <span id="summary-lowstock-badge"
+                class="hidden px-2.5 py-1 bg-amber-100 border border-amber-300 rounded-md font-semibold text-amber-800">
                 Low Stock: <b id="summary-lowstock-items">0</b>
               </span>
             </div>
 
             <!-- PRIMARY GENERATE PDF BUTTON -->
-            <button id="btn-generate-pdf" class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition">
+            <button id="btn-generate-pdf"
+              class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition">
               <span class="text-base">📄</span>
               <span>Generate Busy Entry PDF</span>
             </button>
@@ -280,12 +318,14 @@
 
         <!-- Empty State -->
         <div id="order-empty-state" class="py-16 text-center px-4">
-          <div class="w-16 h-16 mx-auto rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-3xl mb-3">
+          <div
+            class="w-16 h-16 mx-auto rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-3xl mb-3">
             📋
           </div>
           <h3 class="text-sm font-bold text-slate-700">No Order Items Loaded Yet</h3>
           <p class="text-xs text-slate-500 max-w-md mx-auto mt-1">
-            Upload a handwritten order slip image above or click <b>"+ Add Item Manually"</b> to test matching against your local product database.
+            Upload a handwritten order slip image above or click <b>"+ Add Item Manually"</b> to test matching against
+            your local product database.
           </p>
         </div>
 
@@ -320,12 +360,13 @@
     <!-- TAB 2: PRODUCT MASTER & STOCK PDF IMPORT   -->
     <!-- ========================================== -->
     <section id="tab-stock" class="tab-content hidden space-y-6">
-      
+
       <!-- Stock Overview Stats Banner -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        
+
         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl font-bold">
+          <div
+            class="w-12 h-12 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl font-bold">
             📦
           </div>
           <div>
@@ -349,7 +390,8 @@
         </div>
 
         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div class="w-12 h-12 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center text-2xl font-bold">
+          <div
+            class="w-12 h-12 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center text-2xl font-bold">
             📄
           </div>
           <div>
@@ -363,39 +405,45 @@
 
       <!-- Import Action Card -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
-        
+
         <div>
           <h2 class="text-lg font-bold text-slate-900">Import Stock List PDF</h2>
           <p class="text-xs text-slate-500 mt-1">
-            Import your complete spare parts stock report PDF (e.g. 5-page report or 6,000–10,000+ products). The system extracts Part Number, Item Description, Stock Qty, Rack, and Unit.
+            Import your complete spare parts stock report PDF (e.g. 5-page report or 6,000–10,000+ products). The system
+            extracts Part Number, Item Description, Stock Qty, Rack, and Unit.
           </p>
         </div>
 
         <!-- Import Zone -->
-        <div class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50 hover:bg-slate-100/60 rounded-xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center">
+        <div
+          class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50 hover:bg-slate-100/60 rounded-xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center">
           <input type="file" id="stock-pdf-input" accept=".pdf" class="hidden">
-          <div class="w-14 h-14 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-3xl mb-3 font-bold">
+          <div
+            class="w-14 h-14 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-3xl mb-3 font-bold">
             📑
           </div>
           <h3 class="text-sm font-bold text-slate-800">Select Shop Stock PDF File</h3>
           <p class="text-xs text-slate-500 mt-1 max-w-md">
-            The importer supports varying column whitespace and delimiters (e.g. <code>14401K0ND00 — TEMING CHAINE SHINE BS6 — 7 — R-3 K — Pcs.</code>).
+            The importer supports varying column whitespace and delimiters (e.g.
+            <code>14401K0ND00 — TEMING CHAINE SHINE BS6 — 7 — R-3 K — Pcs.</code>).
           </p>
-          <button id="btn-trigger-stock-upload" class="mt-4 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
+          <button id="btn-trigger-stock-upload"
+            class="mt-4 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
             Browse Stock PDF
           </button>
         </div>
 
         <!-- Merge vs Replace Explanation Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          
+
           <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
             <div class="flex items-center gap-2 text-xs font-bold text-slate-800">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>Option 1: Update / Merge Stock</span>
             </div>
             <p class="text-xs text-slate-500 mt-1">
-              Updates stock quantities and rack locations for existing part numbers, adds newly discovered products, and preserves all existing catalogue items.
+              Updates stock quantities and rack locations for existing part numbers, adds newly discovered products, and
+              preserves all existing catalogue items.
             </p>
           </div>
 
@@ -405,7 +453,8 @@
               <span>Option 2: Replace Product Master</span>
             </div>
             <p class="text-xs text-slate-500 mt-1">
-              Clears the entire local database and loads the fresh PDF stock list as the new single source of truth. (Requires confirmation).
+              Clears the entire local database and loads the fresh PDF stock list as the new single source of truth.
+              (Requires confirmation).
             </p>
           </div>
 
@@ -413,11 +462,13 @@
 
         <!-- Master Management Actions -->
         <div class="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <button id="btn-reset-sample-master" class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg transition border border-slate-300">
+          <button id="btn-reset-sample-master"
+            class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg transition border border-slate-300">
             ↺ Reset to Initial Demo Catalogue
           </button>
-          
-          <button id="btn-clear-master" class="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-4 py-2 rounded-lg transition">
+
+          <button id="btn-clear-master"
+            class="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-4 py-2 rounded-lg transition">
             ⚠ Clear Complete Master
           </button>
         </div>
@@ -430,26 +481,31 @@
     <!-- TAB 3: QUICK PART LOOKUP (COUNTER SEARCH)  -->
     <!-- ========================================== -->
     <section id="tab-search" class="tab-content hidden space-y-4">
-      
+
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 class="text-lg font-bold text-slate-900">Quick Part &amp; Rack Finder</h2>
             <p class="text-xs text-slate-500 mt-0.5">
-              Instant keystroke search across all 10,000+ local products. Search by Part Number, Product Name, Rack, or Keywords.
+              Instant keystroke search across all 10,000+ local products. Search by Part Number, Product Name, Rack, or
+              Keywords.
             </p>
           </div>
-          <span id="finder-results-count" class="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 self-start md:self-auto">
+          <span id="finder-results-count"
+            class="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 self-start md:self-auto">
             Loading products...
           </span>
         </div>
 
         <div class="mt-4">
           <div class="relative">
-            <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-base">
+            <span
+              class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 text-base">
               🔍
             </span>
-            <input type="text" id="finder-search-input" placeholder="Search by Part No (e.g. 14401K0ND00), Name (e.g. chain kit, bor kit), or Rack (e.g. R-3 K)..." class="w-full text-sm pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
+            <input type="text" id="finder-search-input"
+              placeholder="Search by Part No (e.g. 14401K0ND00), Name (e.g. chain kit, bor kit), or Rack (e.g. R-3 K)..."
+              class="w-full text-sm pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
           </div>
         </div>
       </div>
@@ -467,9 +523,9 @@
     <!-- TAB 4: SETTINGS & AI CONFIGURATION         -->
     <!-- ========================================== -->
     <section id="tab-settings" class="tab-content hidden space-y-6">
-      
+
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
-        
+
         <div>
           <h2 class="text-lg font-bold text-slate-900">AI Extraction Configuration</h2>
           <p class="text-xs text-slate-500 mt-1">
@@ -478,10 +534,11 @@
         </div>
 
         <div class="space-y-4 max-w-xl">
-          
+
           <div>
             <label for="settings-ai-mode" class="block text-xs font-bold text-slate-700 mb-1">AI Extraction Mode</label>
-            <select id="settings-ai-mode" class="w-full text-xs px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none font-medium">
+            <select id="settings-ai-mode"
+              class="w-full text-xs px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none font-medium">
               <option value="netlify">Netlify Serverless Function (Gemini Vision API Mode)</option>
               <option value="unconnected">AI Not Connected (Manual Entry / Next Step Integration)</option>
             </select>
@@ -491,12 +548,15 @@
           </div>
 
           <div>
-            <label for="settings-netlify-endpoint" class="block text-xs font-bold text-slate-700 mb-1">Netlify Function Endpoint</label>
-            <input type="text" id="settings-netlify-endpoint" value="/.netlify/functions/extract-order" class="w-full text-xs px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none">
+            <label for="settings-netlify-endpoint" class="block text-xs font-bold text-slate-700 mb-1">Netlify Function
+              Endpoint</label>
+            <input type="text" id="settings-netlify-endpoint" value="/.netlify/functions/extract-order"
+              class="w-full text-xs px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-lg font-mono text-slate-800 focus:ring-2 focus:ring-slate-900 focus:outline-none">
           </div>
 
           <div class="pt-2">
-            <button id="btn-save-settings" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
+            <button id="btn-save-settings"
+              class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
               Save Settings
             </button>
           </div>
@@ -509,10 +569,16 @@
             <span>🚀 Google Gemini 3.6 Flash &amp; Netlify Deployment Guide</span>
           </div>
           <ol class="list-decimal list-inside space-y-1.5 text-slate-600">
-            <li>Deploy this repository to <b>Netlify</b> (connected to GitHub or via Netlify CLI: <code class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">netlify deploy --prod</code>).</li>
+            <li>Deploy this repository to <b>Netlify</b> (connected to GitHub or via Netlify CLI: <code
+                class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">netlify deploy --prod</code>).</li>
             <li>In Netlify Dashboard, navigate to <b>Site Configuration &rarr; Environment Variables</b>.</li>
-            <li>Add variable: <code class="bg-slate-200 px-1 py-0.5 rounded text-slate-800 font-bold">GEMINI_API_KEY</code> = <span class="text-slate-500">Your Google Gemini API Key</span>.</li>
-            <li>The serverless function in <code class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">netlify/functions/extract-order.js</code> automatically calls Gemini 3.6 Flash and returns structured JSON: <code class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">[{ customerText, quantity }]</code>.</li>
+            <li>Add variable: <code
+                class="bg-slate-200 px-1 py-0.5 rounded text-slate-800 font-bold">GEMINI_API_KEY</code> = <span
+                class="text-slate-500">Your Google Gemini API Key</span>.</li>
+            <li>The serverless function in <code
+                class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">netlify/functions/extract-order.js</code>
+              automatically calls Gemini 3.6 Flash and returns structured JSON: <code
+                class="bg-slate-200 px-1 py-0.5 rounded text-slate-800">[{ customerText, quantity }]</code>.</li>
             <li>No API key is ever exposed in client-side code!</li>
           </ol>
         </div>
@@ -526,9 +592,11 @@
   <!-- ========================================== -->
   <!-- MODAL: SELECT PRODUCT MANUALLY (SEARCHABLE)-->
   <!-- ========================================== -->
-  <div id="manual-select-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
-      
+  <div id="manual-select-modal"
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+
       <!-- Modal Header -->
       <div class="p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
         <div>
@@ -552,7 +620,8 @@
           <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             🔍
           </span>
-          <input type="text" id="manual-search-input" placeholder="Type part number, product name, or rack..." class="w-full text-xs sm:text-sm pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none">
+          <input type="text" id="manual-search-input" placeholder="Type part number, product name, or rack..."
+            class="w-full text-xs sm:text-sm pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none">
         </div>
         <div class="flex items-center justify-between mt-2 text-[11px] text-slate-500">
           <span>Click any row to select &amp; bind to order</span>
@@ -567,7 +636,8 @@
 
       <!-- Modal Footer -->
       <div class="p-3 bg-slate-50 border-t border-slate-200 flex justify-end">
-        <button onclick="document.getElementById('manual-modal-close').click()" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
+        <button onclick="document.getElementById('manual-modal-close').click()"
+          class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition">
           Cancel
         </button>
       </div>
@@ -578,9 +648,11 @@
   <!-- ========================================== -->
   <!-- MODAL: STOCK IMPORT PREVIEW & MERGE/REPLACE-->
   <!-- ========================================== -->
-  <div id="import-preview-modal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
-      
+  <div id="import-preview-modal"
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div
+      class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+
       <!-- Header -->
       <div class="p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
         <div>
@@ -598,7 +670,7 @@
 
       <!-- Content -->
       <div class="p-5 space-y-4 overflow-y-auto flex-1">
-        
+
         <!-- Detected Count Banner -->
         <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -614,7 +686,8 @@
           </div>
         </div>
 
-        <div id="import-unparsed-warning" class="hidden text-xs text-slate-500 bg-slate-100 p-2.5 rounded-lg border border-slate-200">
+        <div id="import-unparsed-warning"
+          class="hidden text-xs text-slate-500 bg-slate-100 p-2.5 rounded-lg border border-slate-200">
           <!-- Injected warning -->
         </div>
 
@@ -646,24 +719,29 @@
             <span id="import-progress-text">Writing products to local IndexedDB...</span>
           </div>
           <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-            <div id="import-progress-bar" class="bg-emerald-600 h-3 rounded-full transition-all duration-200" style="width: 0%"></div>
+            <div id="import-progress-bar" class="bg-emerald-600 h-3 rounded-full transition-all duration-200"
+              style="width: 0%"></div>
           </div>
         </div>
 
       </div>
 
       <!-- Action Choice Footer -->
-      <div class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <button id="btn-cancel-import" class="w-full sm:w-auto px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg transition">
+      <div
+        class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <button id="btn-cancel-import"
+          class="w-full sm:w-auto px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg transition">
           Cancel
         </button>
-        
+
         <div class="flex items-center gap-3 w-full sm:w-auto">
-          <button id="btn-confirm-merge" class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition">
+          <button id="btn-confirm-merge"
+            class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition">
             Update / Merge Stock
           </button>
-          
-          <button id="btn-confirm-replace" class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition">
+
+          <button id="btn-confirm-replace"
+            class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition">
             Replace Product Master
           </button>
         </div>
@@ -675,8 +753,10 @@
   <!-- ========================================== -->
   <!-- FULLSCREEN AI PROCESSING OVERLAY           -->
   <!-- ========================================== -->
-  <div id="ai-processing-overlay" class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 animate-in fade-in">
-    <div class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center">
+  <div id="ai-processing-overlay"
+    class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 animate-in fade-in">
+    <div
+      class="bg-slate-800 border border-slate-700 p-6 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm text-center">
       <div class="w-14 h-14 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
       <div class="text-base font-bold">Interpreting Handwritten Slip</div>
       <div id="ai-processing-step" class="text-xs text-slate-300 mt-2">1/2: AI analyzing handwriting...</div>
@@ -691,9 +771,11 @@
 
   <!-- FOOTER -->
   <footer class="bg-white border-t border-slate-200 py-4 mt-auto">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+    <div
+      class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
       <div>
-        <span class="font-bold text-slate-700">Maharashtra Automobile</span> &bull; Local-First Spare Parts Order Utility
+        <span class="font-bold text-slate-700">Maharashtra Automobile</span> &bull; Local-First Spare Parts Order
+        Utility
       </div>
       <div>
         Designed for fast manual entry into <span class="font-semibold text-slate-700">Busy Accounting</span>
@@ -704,4 +786,5 @@
   <!-- App Entry Script -->
   <script type="module" src="./js/app.js"></script>
 </body>
+
 </html>
