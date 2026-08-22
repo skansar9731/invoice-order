@@ -6,7 +6,7 @@ import { getDB, clearProductStore, countProducts, getAllProducts, upsertProducts
 import { INITIAL_PRODUCTS } from './sampleData.js';
 import { extractOrderFromImage, getAIConfig, saveAIConfig, getAIStatus } from './aiService.js';
 import { matchAllOrderItems } from './matchingEngine.js';
-import { processStockPDFImport, extractLinesFromPDF, parseLinesToProducts } from './productImporter.js';
+import { processStockPDFImport, extractProductsFromPDF } from './productImporter.js';
 import {
   getCurrentOrder,
   resetOrder,
@@ -27,36 +27,38 @@ import { searchLocalProducts, debounce, invalidateSearchCache } from './productS
 let pendingImportData = null;
 
 // Initialize on DOM Ready
-document.addEventListener('DOMContentLoaded', async () => {
-  try {
-    // 1. Initialize IndexedDB
-    await getDB();
-    await refreshDashboardStats();
-    updateAIStatusBadge();
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      // 1. Initialize IndexedDB
+      await getDB();
+      await refreshDashboardStats();
+      updateAIStatusBadge();
 
-    // 2. Setup UI & Event Listeners
-    initUIEventListeners();
-    initAppNavigation();
-    initOrderEntryEvents();
-    initStockImportEvents();
-    initQuickSearchEvents();
-    initSettingsEvents();
-    initPWA();
+      // 2. Setup UI & Event Listeners
+      initUIEventListeners();
+      initAppNavigation();
+      initOrderEntryEvents();
+      initStockImportEvents();
+      initQuickSearchEvents();
+      initSettingsEvents();
+      initPWA();
 
-    // 3. Subscribe to Order state updates
-    subscribeOrder((order) => {
+      // 3. Subscribe to Order state updates
+      subscribeOrder((order) => {
+        renderOrderTable();
+      });
+
+      // 4. Initial empty table render
       renderOrderTable();
-    });
 
-    // 4. Initial empty table render
-    renderOrderTable();
-
-    console.log('Maharashtra Automobile PWA initialized successfully.');
-  } catch (err) {
-    console.error('Initialization error:', err);
-    showToast('Initialization error: ' + err.message, 'error');
-  }
-});
+      console.log('Maharashtra Automobile PWA initialized successfully.');
+    } catch (err) {
+      console.error('Initialization error:', err);
+      showToast('Initialization error: ' + err.message, 'error');
+    }
+  });
+}
 
 function updateAIStatusBadge(isConnectedOverride = null) {
   const badge = document.getElementById('stat-ai-status');
@@ -119,17 +121,19 @@ function initAppNavigation() {
   });
 }
 
+let currentImageObjectURL = null;
+
 /**
- * Order Entry Flow & Image Uploads
+ * Order Entry Flow & Image Upload Event Listeners
  */
 function initOrderEntryEvents() {
   const fileInput = document.getElementById('order-image-input');
   const dropZone = document.getElementById('order-dropzone');
-  const previewImg = document.getElementById('order-image-preview');
-  const previewContainer = document.getElementById('image-preview-container');
+  const btnBrowseOrderImage = document.getElementById('btn-browse-order-image');
+  const btnChangeImage = document.getElementById('btn-change-image');
+  const btnRemoveImage = document.getElementById('btn-remove-image');
   const btnNewOrder = document.getElementById('btn-new-order');
   const customerNameInput = document.getElementById('order-customer-name');
-  const orderNumberInput = document.getElementById('order-number-display');
   const btnAddManualItem = document.getElementById('btn-add-manual-item');
 
   // Customer Name Binding
@@ -143,50 +147,85 @@ function initOrderEntryEvents() {
   if (btnNewOrder) {
     btnNewOrder.addEventListener('click', () => {
       if (confirm('Start a new order? This will clear the current session.')) {
-        const fresh = resetOrder();
-        if (customerNameInput) customerNameInput.value = '';
-        if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
-        if (previewContainer) previewContainer.classList.add('hidden');
-        if (fileInput) fileInput.value = '';
+        removeUploadedImage(false);
         showToast('New order session started', 'info');
       }
     });
   }
 
-  // File Upload Handlers
-  if (fileInput) {
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (file) {
-        handleSelectedImageFile(file);
-      }
+  // Browse Image Button click -> Trigger File Input
+  if (btnBrowseOrderImage) {
+    btnBrowseOrderImage.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (fileInput) fileInput.click();
     });
   }
 
-  // Drag & Drop
+  // Entire Dropzone click -> Trigger File Input
   if (dropZone) {
+    dropZone.addEventListener('click', () => {
+      if (fileInput) fileInput.click();
+    });
+
+    // Keyboard support for accessibility (Enter or Space)
+    dropZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        if (fileInput) fileInput.click();
+      }
+    });
+
+    // Drag & Drop handlers
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
-        dropZone.classList.add('border-slate-800', 'bg-slate-100');
+        e.stopPropagation();
+        dropZone.classList.add('border-slate-900', 'bg-slate-100', 'ring-2', 'ring-slate-900');
       }, false);
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
         e.preventDefault();
-        dropZone.classList.remove('border-slate-800', 'bg-slate-100');
+        e.stopPropagation();
+        dropZone.classList.remove('border-slate-900', 'bg-slate-100', 'ring-2', 'ring-slate-900');
       }, false);
     });
 
     dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       const dt = e.dataTransfer;
-      const file = dt.files[0];
-      if (file && file.type.startsWith('image/')) {
-        handleSelectedImageFile(file);
-      } else {
-        showToast('Please drop a valid image file (JPG, PNG, WebP).', 'warning');
+      const file = dt?.files?.[0];
+      if (file) {
+        handleImageFile(file);
       }
+    });
+  }
+
+  // Real File Input Change
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) {
+        handleImageFile(file);
+      }
+    });
+  }
+
+  // Change Image Button
+  if (btnChangeImage) {
+    btnChangeImage.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (fileInput) fileInput.click();
+    });
+  }
+
+  // Remove Image Button
+  if (btnRemoveImage) {
+    btnRemoveImage.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeUploadedImage(true);
     });
   }
 
@@ -197,7 +236,7 @@ function initOrderEntryEvents() {
       if (itemName && itemName.trim()) {
         const qtyStr = prompt('Enter ordered quantity:', '1');
         const qty = parseInt(qtyStr, 10) || 1;
-        const item = addOrderItem(itemName.trim(), qty);
+        addOrderItem(itemName.trim(), qty);
         showToast(`Added "${itemName.trim()}" to order`, 'info');
       }
     });
@@ -205,32 +244,106 @@ function initOrderEntryEvents() {
 }
 
 /**
- * Handle image file selection and preview
- * Completely clears any previous order items and starts fresh extraction
+ * Single unified processing function for both Browse and Drag & Drop image files
+ * @param {File} file - Selected or dropped browser File object
  */
-async function handleSelectedImageFile(file) {
-  // 1. Clear previous extracted order items, matching results, confidence, and manual selections
+export async function handleImageFile(file) {
+  if (!file) return;
+
+  // 1. Validate File type / MIME type (.jpg, .jpeg, .png, .webp)
+  const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  const validExts = ['.jpg', '.jpeg', '.png', '.webp'];
+  const fileName = file.name || '';
+  const fileExt = fileName.substring(fileName.lastIndexOf('.')).toLowerCase();
+  const isValidType = validTypes.includes(file.type) || validExts.includes(fileExt);
+
+  if (!isValidType) {
+    showToast('Please select a JPG, JPEG, PNG, or WEBP image.', 'warning');
+    const fileInput = document.getElementById('order-image-input');
+    if (fileInput) fileInput.value = '';
+    return;
+  }
+
+  // 2. Validate File size (Max 10 MB)
+  const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+  if (file.size > MAX_SIZE_BYTES) {
+    showToast('Image is too large. Please upload an image under 10 MB.', 'warning');
+    const fileInput = document.getElementById('order-image-input');
+    if (fileInput) fileInput.value = '';
+    return;
+  }
+
+  // 3. Reset input value so re-selecting the SAME file triggers change event again
+  const fileInput = document.getElementById('order-image-input');
+  if (fileInput) fileInput.value = '';
+
+  // 4. Clear previous extracted order items, matching results, confidence, and manual selections
   const fresh = resetOrder();
   const customerNameInput = document.getElementById('order-customer-name');
   const orderNumberInput = document.getElementById('order-number-display');
   if (customerNameInput) customerNameInput.value = '';
   if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
 
-  // 2. Store new uploaded image preview
-  const previewImg = document.getElementById('order-image-preview');
-  const previewContainer = document.getElementById('image-preview-container');
-
-  if (previewImg && previewContainer) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      previewImg.src = e.target.result;
-      previewContainer.classList.remove('hidden');
-    };
-    reader.readAsDataURL(file);
+  // 5. Update image preview with URL.createObjectURL (and revoke previous URL to prevent memory leaks)
+  if (currentImageObjectURL) {
+    try {
+      URL.revokeObjectURL(currentImageObjectURL);
+    } catch (e) {}
+    currentImageObjectURL = null;
   }
 
-  // 3. Start a NEW extraction request with the actual File object
+  if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+    try {
+      currentImageObjectURL = URL.createObjectURL(file);
+    } catch (e) {}
+  }
+
+  const previewImg = document.getElementById('order-image-preview');
+  const previewContainer = document.getElementById('image-preview-container');
+  const filenameEl = document.getElementById('order-image-filename');
+
+  if (previewImg && currentImageObjectURL) {
+    previewImg.src = currentImageObjectURL;
+  }
+  if (filenameEl) {
+    filenameEl.textContent = file.name || 'Handwritten Slip';
+  }
+  if (previewContainer) {
+    previewContainer.classList.remove('hidden');
+  }
+
+  // 6. Start a NEW extraction request with the actual File object
   await processOrderExtraction(file);
+}
+
+/**
+ * Remove active image and reset order session
+ */
+export function removeUploadedImage(showNotification = true) {
+  if (currentImageObjectURL) {
+    try {
+      URL.revokeObjectURL(currentImageObjectURL);
+    } catch (e) {}
+    currentImageObjectURL = null;
+  }
+
+  const previewContainer = document.getElementById('image-preview-container');
+  const previewImg = document.getElementById('order-image-preview');
+  const fileInput = document.getElementById('order-image-input');
+  const customerNameInput = document.getElementById('order-customer-name');
+  const orderNumberInput = document.getElementById('order-number-display');
+
+  if (previewContainer) previewContainer.classList.add('hidden');
+  if (previewImg) previewImg.src = '';
+  if (fileInput) fileInput.value = '';
+
+  const fresh = resetOrder();
+  if (customerNameInput) customerNameInput.value = '';
+  if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
+
+  if (showNotification) {
+    showToast('Image removed and order session reset.', 'info');
+  }
 }
 
 /**
@@ -306,11 +419,10 @@ function initStockImportEvents() {
       try {
         showToast('Reading stock PDF pages...', 'info');
         
-        // Extract & Parse for Preview
-        const lines = await extractLinesFromPDF(file);
-        const { validProducts, totalParsed, unparsedLines } = parseLinesToProducts(lines);
+        // Extract & Parse for Preview via coordinate parser
+        const { products, warnings, totalPages } = await extractProductsFromPDF(file);
 
-        if (validProducts.length === 0) {
+        if (products.length === 0) {
           showToast('No valid product rows could be detected in this PDF.', 'error');
           return;
         }
@@ -318,12 +430,12 @@ function initStockImportEvents() {
         // Store in pending object for modal
         pendingImportData = {
           file,
-          validProducts,
-          unparsedLines
+          validProducts: products,
+          unparsedLines: warnings
         };
 
         // Populate Preview Modal
-        populateImportPreviewModal(file.name, validProducts, unparsedLines);
+        populateImportPreviewModal(file.name, products, warnings);
       } catch (err) {
         console.error('PDF Read error:', err);
         showToast('Failed to parse stock PDF: ' + err.message, 'error');
