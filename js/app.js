@@ -58,11 +58,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-function updateAIStatusBadge() {
+function updateAIStatusBadge(isConnectedOverride = null) {
   const badge = document.getElementById('stat-ai-status');
   if (!badge) return;
   const status = getAIStatus();
-  if (status.mode === 'netlify') {
+  
+  if (isConnectedOverride === true) {
+    badge.textContent = 'AI: NETLIFY / GEMINI CONNECTED';
+    badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+  } else if (isConnectedOverride === false) {
+    badge.textContent = 'AI: Connection Error';
+    badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30';
+  } else if (status.mode === 'netlify') {
     badge.textContent = 'AI: Netlify / Gemini Ready';
     badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30';
   } else {
@@ -242,6 +249,7 @@ async function processOrderExtraction(imageFile) {
 
     // Step 1: AI Transcription (Accepts real File object, calls Netlify / Gemini)
     const extractedItems = await extractOrderFromImage(imageFile);
+    updateAIStatusBadge(true);
 
     if (processingStepEl) {
       processingStepEl.textContent = `Matching ${extractedItems.length} items against local product master...`;
@@ -256,7 +264,8 @@ async function processOrderExtraction(imageFile) {
     showToast(`Successfully extracted and matched ${matchedItems.length} order items!`, 'success');
   } catch (err) {
     console.warn('AI Order extraction info:', err.message);
-    // Show clear message when AI is not connected yet
+    updateAIStatusBadge(false);
+    // Show clear, safe message when AI call fails or is not configured
     showToast(err.message, 'warning', 6000);
   } finally {
     if (processingOverlay) {

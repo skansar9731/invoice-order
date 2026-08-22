@@ -32,22 +32,35 @@ if (!foundKey) {
   console.log('  ✓ PASSED: No hardcoded Gemini API key found in source files.');
 }
 
-// 2. Confirm no gemini-1.5-flash remains
-console.log('\n2. Checking for old gemini-1.5-flash...');
+// 2. Confirm ONLY gemini-3.6-flash is used (no old models)
+console.log('\n2. Checking for old Gemini model versions (1.5, 2.0, 2.5)...');
 let foundOldModel = false;
+const oldModels = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-2.5-flash'];
+
 for (const file of filesToCheck) {
   const content = fs.readFileSync(file, 'utf8');
-  if (content.includes('gemini-1.5-flash')) {
-    console.error(`  ✕ Found old gemini-1.5-flash in ${file}!`);
-    foundOldModel = true;
+  for (const old of oldModels) {
+    if (content.includes(old)) {
+      console.error(`  ✕ Found ${old} in ${file}!`);
+      foundOldModel = true;
+    }
   }
 }
 if (!foundOldModel) {
-  console.log('  ✓ PASSED: gemini-2.5-flash is used everywhere.');
+  console.log('  ✓ PASSED: gemini-3.6-flash is the only model used across the codebase.');
 }
 
-// 3. Confirm db.js does NOT auto-seed INITIAL_PRODUCTS
-console.log('\n3. Checking db.js auto-seeding removal...');
+// 3. Confirm no deprecated sampling parameters (temperature, top_p, top_k) in Netlify function
+console.log('\n3. Checking Netlify function for deprecated sampling parameters...');
+const netlifyCode = fs.readFileSync('netlify/functions/extract-order.js', 'utf8');
+if (/temperature\s*:/i.test(netlifyCode) || /top_p\s*:/i.test(netlifyCode) || /top_k\s*:/i.test(netlifyCode)) {
+  console.error('  ✕ FAILED: Deprecated sampling parameters found in extract-order.js!');
+} else {
+  console.log('  ✓ PASSED: No temperature, top_p, or top_k in extract-order.js.');
+}
+
+// 4. Confirm db.js does NOT auto-seed INITIAL_PRODUCTS
+console.log('\n4. Checking db.js auto-seeding removal...');
 const dbSource = fs.readFileSync('js/db.js', 'utf8');
 if (dbSource.includes('seedInitialData') || dbSource.includes('count === 0')) {
   console.error('  ✕ FAILED: db.js still contains auto-seeding logic.');
@@ -55,8 +68,8 @@ if (dbSource.includes('seedInitialData') || dbSource.includes('count === 0')) {
   console.log('  ✓ PASSED: Auto-seeding completely removed from db.js.');
 }
 
-// 4. Test Upsert Normalization: Missing stock/rack/unit remain null/'' and actual stock 0 remains 0
-console.log('\n4. Testing stock/rack/unit/rate normalization in db.js upsert...');
+// 5. Test Upsert Normalization: Missing stock/rack/unit remain null/'' and actual stock 0 remains 0
+console.log('\n5. Testing stock/rack/unit/rate normalization in db.js upsert...');
 const storeMap = new Map();
 globalThis.indexedDB = {
   open: () => {
@@ -149,8 +162,8 @@ if (item2.stockQty === 0 && item2.rack === 'R-1 A' && item2.unit === 'Pcs.' && i
   console.error('  ✕ FAILED: Zero stock handled incorrectly!', item2);
 }
 
-// 5. Test AI Extraction does NOT return hardcoded demo order on new upload
-console.log('\n5. Testing AI extraction behavior with new image upload...');
+// 6. Test AI Extraction does NOT return hardcoded demo order on new upload
+console.log('\n6. Testing AI extraction behavior with new image upload...');
 try {
   const dummyFile = new Blob(['image payload'], { type: 'image/png' });
   await extractOrderFromImage(dummyFile, { endpoint: 'http://localhost:99999/unconnected' });
@@ -159,8 +172,8 @@ try {
   console.log('  ✓ PASSED: Correctly requires real AI connection:', e.message);
 }
 
-// 6. Test Gemini Structured Schema Validation
-console.log('\n6. Testing Gemini response schema validator...');
+// 7. Test Gemini Structured Schema Validation
+console.log('\n7. Testing Gemini response schema validator...');
 const mockGeminiOutput = [
   { customerText: 'Teming Chain Shine BS6', quantity: 3 },
   { customerText: 'Clutch Assy SPL+', quantity: 5 }

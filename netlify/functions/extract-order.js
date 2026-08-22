@@ -1,6 +1,6 @@
 /**
  * Netlify Serverless Function: AI Handwritten Order Extraction
- * Powered by Google Gemini 2.5 Flash Vision API
+ * Powered by Google Gemini 3.6 Flash Vision API
  * Transcribes handwritten customer order slips into structured JSON: [{ customerText, quantity }]
  */
 
@@ -112,8 +112,8 @@ Ignore printed logos, signatures, decorative borders and unrelated printed text.
 
 Return ONLY JSON.`;
 
-    // Call Gemini 2.5 Flash API via REST with x-goog-api-key header
-    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    // Call Gemini 3.6 Flash API via REST with x-goog-api-key header
+    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
 
     const geminiBody = {
       contents: [
@@ -130,7 +130,6 @@ Return ONLY JSON.`;
         }
       ],
       generationConfig: {
-        temperature: 0.1,
         response_mime_type: 'application/json',
         response_schema: {
           type: 'ARRAY',
