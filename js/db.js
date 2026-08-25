@@ -125,12 +125,53 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
     await clearProductStore();
   }
 
+  // Deduplicate and merge products by partNumber
+  const productMap = new Map();
+  for (const item of products) {
+    if (!item.partNumber) continue;
+    const key = String(item.partNumber).trim().toUpperCase();
+    if (productMap.has(key)) {
+      const prev = productMap.get(key);
+      const currStock = (item.stockQty !== null && item.stockQty !== undefined && item.stockQty !== '') ? Number(item.stockQty) : null;
+      const prevStock = (prev.stockQty !== null && prev.stockQty !== undefined && prev.stockQty !== '') ? Number(prev.stockQty) : null;
+
+      if (currStock !== null && currStock > 0 && (prevStock === null || prevStock <= 0)) {
+        productMap.set(key, {
+          ...item,
+          alias: prev.alias || item.alias,
+          parentGroup: prev.parentGroup || item.parentGroup
+        });
+      } else if (prevStock !== null && prevStock > 0 && (currStock === null || currStock <= 0)) {
+        if (!prev.rack && item.rack) prev.rack = item.rack;
+        if (!prev.rate && item.rate) prev.rate = item.rate;
+        if (!prev.alias && item.alias) prev.alias = item.alias;
+      } else if (currStock !== null && currStock > 0 && prevStock !== null && prevStock > 0) {
+        prev.stockQty = prevStock + currStock;
+        if (!prev.rack && item.rack) prev.rack = item.rack;
+        if (!prev.rate && item.rate) prev.rate = item.rate;
+      } else {
+        const prevScore = (prev.rack ? 2 : 0) + (prev.rate ? 2 : 0) + (String(prev.productName || '').length > 5 ? 1 : 0);
+        const currScore = (item.rack ? 2 : 0) + (item.rate ? 2 : 0) + (String(item.productName || '').length > 5 ? 1 : 0);
+        if (currScore > prevScore) {
+          productMap.set(key, {
+            ...item,
+            alias: prev.alias || item.alias,
+            parentGroup: prev.parentGroup || item.parentGroup
+          });
+        }
+      }
+    } else {
+      productMap.set(key, item);
+    }
+  }
+
+  const dedupedProducts = Array.from(productMap.values());
   const chunkSize = 500;
-  const total = products.length;
+  const total = dedupedProducts.length;
   let processed = 0;
 
   for (let i = 0; i < total; i += chunkSize) {
-    const chunk = products.slice(i, i + chunkSize);
+    const chunk = dedupedProducts.slice(i, i + chunkSize);
     
     await new Promise((resolve, reject) => {
       const tx = db.transaction([STORE_PRODUCTS], 'readwrite');

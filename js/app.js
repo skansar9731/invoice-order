@@ -797,7 +797,7 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
     }
   }
 
-  // Display first 15 sample rows
+  // Display first 15 sample rows (both Mobile Cards & Desktop Table)
   if (sampleTableBody) {
     sampleTableBody.innerHTML = '';
     const sampleSlice = validProducts.slice(0, 15);
@@ -814,6 +814,27 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
         <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(item.unit || 'Pcs.')}</td>
       `;
       sampleTableBody.appendChild(tr);
+    });
+  }
+
+  const sampleCardsContainer = document.getElementById('import-sample-cards');
+  if (sampleCardsContainer) {
+    sampleCardsContainer.innerHTML = '';
+    const sampleSlice = validProducts.slice(0, 15);
+    sampleSlice.forEach((item, idx) => {
+      const card = document.createElement('div');
+      card.className = 'bg-white rounded-lg border border-slate-200 p-3 text-xs space-y-1.5 shadow-xs';
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-2">
+          <div class="font-bold text-slate-900 text-sm">${idx + 1}. ${escapeHtml(item.productName)}</div>
+          <code class="font-mono font-bold text-[11px] text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">${escapeHtml(item.partNumber)}</code>
+        </div>
+        <div class="flex items-center justify-between text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 text-xs">
+          <div>Rack: <b class="text-slate-800">${escapeHtml(item.rack || '-')}</b></div>
+          <div>Stock: <b class="text-slate-900">${item.stockQty}</b> ${escapeHtml(item.unit || 'Pcs.')}</div>
+        </div>
+      `;
+      sampleCardsContainer.appendChild(card);
     });
   }
 
@@ -900,34 +921,90 @@ function renderQuickSearchResults(searchResult) {
   }
 
   resultsContainer.innerHTML = `
-    <table class="w-full text-left text-xs border-collapse">
-      <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 border-b border-slate-200">
-        <tr>
-          <th class="px-4 py-3">Part Number</th>
-          <th class="px-4 py-3">Product Name / Description</th>
-          <th class="px-4 py-3 text-center">Rack Location</th>
-          <th class="px-4 py-3 text-center">Stock Qty</th>
-          <th class="px-4 py-3 text-center">Unit</th>
-          <th class="px-4 py-3 text-center">Action</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 text-slate-700">
-        ${searchResult.items.map(p => `
-          <tr class="hover:bg-slate-50 transition-colors">
-            <td class="px-4 py-3 font-mono font-bold text-slate-900">${escapeHtml(p.partNumber)}</td>
-            <td class="px-4 py-3 font-medium text-slate-800 text-sm">${escapeHtml(p.productName)}</td>
-            <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 bg-slate-100 font-semibold rounded text-slate-700">${escapeHtml(p.rack || '—')}</span></td>
-            <td class="px-4 py-3 text-center font-bold ${p.stockQty !== null && p.stockQty > 0 ? 'text-emerald-600' : 'text-slate-600'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '—'}</td>
-            <td class="px-4 py-3 text-center text-slate-500">${escapeHtml(p.unit || '—')}</td>
-            <td class="px-4 py-3 text-center">
-              <button data-add-to-order="${escapeHtml(p.partNumber)}" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold shadow-sm transition">
-                + Add to Order
-              </button>
-            </td>
+    <!-- Mobile Cards View (< 768px) -->
+    <div class="responsive-card-view space-y-3 p-3 bg-slate-100/70">
+      ${searchResult.items.map(p => `
+        <div class="bg-white rounded-xl border-2 border-slate-800 p-4 shadow-md space-y-2.5">
+          <!-- Part Number -->
+          <div class="flex items-start justify-between gap-2 border-b border-slate-200 pb-2">
+            <span class="font-extrabold text-slate-900 text-xs tracking-tight uppercase">Part Number</span>
+            <code class="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">${escapeHtml(p.partNumber)}</code>
+          </div>
+
+          <!-- Product Name / Description -->
+          <div class="border-b border-slate-200 pb-2">
+            <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Product Name / Description</div>
+            <div class="font-bold text-slate-900 text-sm leading-snug">${escapeHtml(p.productName)}</div>
+          </div>
+
+          <!-- Stock Qty -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Stock Qty</span>
+            <span class="font-bold ${p.stockQty !== null && p.stockQty > 0 ? 'text-emerald-700 font-extrabold' : 'text-slate-700'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '—'}</span>
+          </div>
+
+          <!-- Unit -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Unit</span>
+            <span class="font-bold text-slate-700">${escapeHtml(p.unit || '—')}</span>
+          </div>
+
+          <!-- MRP -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">MRP</span>
+            <span class="font-extrabold text-slate-900">${p.rate !== null && p.rate !== undefined && p.rate !== '' ? `₹${Number(p.rate).toLocaleString('en-IN')}` : '—'}</span>
+          </div>
+
+          <!-- Rack Number -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Number</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(p.rack || '—')}</span>
+          </div>
+
+          <!-- Action -->
+          <div class="pt-1 flex items-center justify-between gap-2">
+            <span class="font-extrabold text-slate-900 text-xs uppercase tracking-tight">Action</span>
+            <button type="button" data-add-to-order="${escapeHtml(p.partNumber)}" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white rounded-lg text-xs font-bold shadow transition flex items-center gap-1.5">
+              <span>+ Add to Order</span>
+            </button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <!-- Desktop Table View (>= 768px) -->
+    <div class="responsive-table-view overflow-x-auto">
+      <table class="w-full text-left text-xs border-collapse">
+        <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 border-b border-slate-200">
+          <tr>
+            <th class="px-4 py-3">Part Number</th>
+            <th class="px-4 py-3">Product Name / Description</th>
+            <th class="px-4 py-3 text-center">Stock Qty</th>
+            <th class="px-4 py-3 text-center">Unit</th>
+            <th class="px-4 py-3 text-center">MRP</th>
+            <th class="px-4 py-3 text-center">Rack Number</th>
+            <th class="px-4 py-3 text-center">Action</th>
           </tr>
-        `).join('')}
-      </tbody>
-    </table>
+        </thead>
+        <tbody class="divide-y divide-slate-100 text-slate-700">
+          ${searchResult.items.map(p => `
+            <tr class="hover:bg-slate-50 transition-colors">
+              <td class="px-4 py-3 font-mono font-bold text-slate-900">${escapeHtml(p.partNumber)}</td>
+              <td class="px-4 py-3 font-medium text-slate-800 text-sm">${escapeHtml(p.productName)}</td>
+              <td class="px-4 py-3 text-center font-bold ${p.stockQty !== null && p.stockQty > 0 ? 'text-emerald-600' : 'text-slate-600'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '—'}</td>
+              <td class="px-4 py-3 text-center text-slate-500">${escapeHtml(p.unit || '—')}</td>
+              <td class="px-4 py-3 text-center font-bold text-slate-900">${p.rate !== null && p.rate !== undefined && p.rate !== '' ? `₹${Number(p.rate).toLocaleString('en-IN')}` : '—'}</td>
+              <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 bg-slate-100 font-semibold rounded text-slate-700">${escapeHtml(p.rack || '—')}</span></td>
+              <td class="px-4 py-3 text-center">
+                <button type="button" data-add-to-order="${escapeHtml(p.partNumber)}" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold shadow-sm transition">
+                  + Add to Order
+                </button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
 
   // Attach "+ Add to Order" handlers

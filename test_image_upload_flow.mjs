@@ -18,6 +18,7 @@ const domElements = {
   'ai-processing-step': { textContent: '' },
   'toast-container': { appendChild: (el) => { toastMessages.push({ msg: el.textContent, type: el.dataset.type }); } },
   'order-table-body': { innerHTML: '', appendChild: () => {} },
+  'order-cards-container': { innerHTML: '', appendChild: () => {} },
   'stat-total-items': { textContent: '' },
   'stat-matched-count': { textContent: '' },
   'stat-pending-count': { textContent: '' },

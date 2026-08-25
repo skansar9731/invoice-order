@@ -65,3 +65,27 @@ table thead th {
     max-width: 100% !important;
   }
 }
+
+/* ==========================================================================
+   STRICT MOBILE CARD VIEW & DESKTOP TABLE VIEW RESPONSIVE ENGINE
+   Guarantees that ALL tables across the application display as touch-friendly
+   cards on Mobile screens (< 768px) and tables on Desktop (>= 768px).
+   ========================================================================== */
+@media screen and (max-width: 767.98px) {
+  .responsive-table-view {
+    display: none !important;
+  }
+  .responsive-card-view {
+    display: block !important;
+  }
+}
+
+@media screen and (min-width: 768px) {
+  .responsive-card-view {
+    display: none !important;
+  }
+  .responsive-table-view {
+    display: block !important;
+  }
+}
+

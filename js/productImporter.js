@@ -7,8 +7,16 @@
 import { upsertProducts } from './db.js';
 import { invalidateSearchCache } from './productSearch.js';
 
-// Table column boundaries for Busy / Maharashtra Automobile stock report layout
-const COL_BOUNDS = {
+// Table column boundaries for Busy / Maharashtra Automobile stock report layouts
+const LAYOUT_STOCK_STATUS = {
+  NAME: { min: 20, max: 310 },
+  OP_STOCK: { min: 310, max: 360 },
+  UNIT: { min: 360, max: 410 },
+  MRP: { min: 410, max: 490 },
+  RACK: { min: 490, max: 600 }
+};
+
+const LAYOUT_LIST_OF_ITEMS = {
   NAME: { min: 20, max: 205 },
   ALIAS: { min: 205, max: 369 },
   PARENT_GROUP: { min: 369, max: 440 },
@@ -32,8 +40,24 @@ export async function extractProductsFromPDF(file, onProgress = null) {
   const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
   const pdf = await loadingTask.promise;
   const numPages = pdf.numPages;
-  const rawProducts = [];
+  const productMap = new Map();
   const warnings = [];
+
+  // Detect report layout format by sampling initial pages
+  let layoutType = 'LIST_OF_ITEMS';
+  for (let p = 1; p <= Math.min(3, numPages); p++) {
+    try {
+      const samplePage = await pdf.getPage(p);
+      const sampleTc = await samplePage.getTextContent();
+      const sampleText = sampleTc.items.map(i => i.str).join(' ');
+      if (sampleText.includes('Stock Status') || (sampleText.includes('Item Details') && sampleText.includes('MRP'))) {
+        layoutType = 'STOCK_STATUS';
+        break;
+      }
+    } catch (e) {}
+  }
+
+  const bounds = layoutType === 'STOCK_STATUS' ? LAYOUT_STOCK_STATUS : LAYOUT_LIST_OF_ITEMS;
 
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -65,17 +89,19 @@ export async function extractProductsFromPDF(file, onProgress = null) {
         lower.includes('nanded, maharashtra') ||
         lower.includes('gstin :') ||
         lower.includes('list of items') ||
+        lower.includes('stock status') ||
+        lower.includes('item details') ||
         (lower.includes('name') && lower.includes('parent group')) ||
         lower.includes('totals c/o') ||
         lower.includes('totals b/d') ||
         lower.includes('contd. on page') ||
         lower.includes('grand total') ||
-        (lower.startsWith('page ') && lower.includes('list of items'))
+        (lower.startsWith('page ') && (lower.includes('list of items') || lower.includes('stock status')))
       ) {
         continue;
       }
 
-      const fields = extractRowFields(rowItems);
+      const fields = extractRowFields(rowItems, bounds, layoutType);
       if (!fields.name && !fields.alias) continue;
 
       const parsed = parseNameField(fields.name, fields.alias);
@@ -85,14 +111,26 @@ export async function extractProductsFromPDF(file, onProgress = null) {
       }
 
       // Preserve empty/missing data strictly as null / ''
-      const stockQty = fields.opStock ? (parseFloat(fields.opStock) || null) : null;
+      let stockQty = null;
+      if (fields.opStock) {
+        const cleanStock = fields.opStock.replace(/,/g, '');
+        const num = parseFloat(cleanStock);
+        if (!isNaN(num)) stockQty = num;
+      }
+
+      let rate = parsed.rate !== null ? parsed.rate : null;
+      if (fields.mrp) {
+        const cleanMrp = fields.mrp.replace(/,/g, '');
+        const numMrp = parseFloat(cleanMrp);
+        if (!isNaN(numMrp)) rate = numMrp;
+      }
+
       const rack = fields.rack || '';
       const unit = fields.unit || '';
       const alias = parsed.alias || fields.alias || '';
       const parentGroup = fields.parentGroup || '';
-      const rate = parsed.rate !== null ? parsed.rate : null;
 
-      rawProducts.push({
+      const newProduct = {
         partNumber: parsed.partNumber,
         productName: parsed.productName,
         alias,
@@ -102,13 +140,55 @@ export async function extractProductsFromPDF(file, onProgress = null) {
         rack,
         rate,
         page: pageNum
-      });
+      };
+
+      const key = parsed.partNumber;
+      if (productMap.has(key)) {
+        const prev = productMap.get(key);
+        // Smart Merge:
+        // 1. If new has positive stock and prev does not, prefer new
+        if (newProduct.stockQty !== null && newProduct.stockQty > 0 && (prev.stockQty === null || prev.stockQty <= 0)) {
+          productMap.set(key, {
+            ...newProduct,
+            alias: prev.alias || newProduct.alias,
+            parentGroup: prev.parentGroup || newProduct.parentGroup
+          });
+        }
+        // 2. If prev has positive stock and new does not, keep prev but fill missing fields
+        else if (prev.stockQty !== null && prev.stockQty > 0 && (newProduct.stockQty === null || newProduct.stockQty <= 0)) {
+          if (!prev.rack && newProduct.rack) prev.rack = newProduct.rack;
+          if (!prev.rate && newProduct.rate) prev.rate = newProduct.rate;
+          if (!prev.alias && newProduct.alias) prev.alias = newProduct.alias;
+        }
+        // 3. If both have stock, sum stock and prefer populated rack & rate
+        else if (newProduct.stockQty !== null && newProduct.stockQty > 0 && prev.stockQty !== null && prev.stockQty > 0) {
+          prev.stockQty = prev.stockQty + newProduct.stockQty;
+          if (!prev.rack && newProduct.rack) prev.rack = newProduct.rack;
+          if (!prev.rate && newProduct.rate) prev.rate = newProduct.rate;
+        }
+        // 4. If neither has stock, prefer the one with rack / rate / longer description
+        else {
+          const prevScore = (prev.rack ? 2 : 0) + (prev.rate ? 2 : 0) + (prev.productName.length > 5 ? 1 : 0);
+          const newScore = (newProduct.rack ? 2 : 0) + (newProduct.rate ? 2 : 0) + (newProduct.productName.length > 5 ? 1 : 0);
+          if (newScore > prevScore) {
+            productMap.set(key, {
+              ...newProduct,
+              alias: prev.alias || newProduct.alias,
+              parentGroup: prev.parentGroup || newProduct.parentGroup
+            });
+          }
+        }
+      } else {
+        productMap.set(key, newProduct);
+      }
     }
 
     if (onProgress) {
       onProgress(pageNum, numPages);
     }
   }
+
+  const rawProducts = Array.from(productMap.values());
 
   return {
     products: rawProducts,
@@ -118,9 +198,9 @@ export async function extractProductsFromPDF(file, onProgress = null) {
 }
 
 /**
- * Group row items into column fields based on X coordinates
+ * Group row items into column fields based on X coordinates and layout
  */
-function extractRowFields(items) {
+function extractRowFields(items, bounds = LAYOUT_LIST_OF_ITEMS, layoutType = 'LIST_OF_ITEMS') {
   items.sort((a, b) => a.x - b.x);
 
   const fields = {
@@ -129,6 +209,7 @@ function extractRowFields(items) {
     parentGroup: '',
     opStock: '',
     unit: '',
+    mrp: '',
     rack: ''
   };
 
@@ -137,18 +218,32 @@ function extractRowFields(items) {
     if (!text) continue;
     const x = item.x;
 
-    if (x < COL_BOUNDS.NAME.max) {
-      fields.name = fields.name ? `${fields.name} ${text}` : text;
-    } else if (x < COL_BOUNDS.ALIAS.max) {
-      fields.alias = fields.alias ? `${fields.alias} ${text}` : text;
-    } else if (x < COL_BOUNDS.PARENT_GROUP.max) {
-      fields.parentGroup = fields.parentGroup ? `${fields.parentGroup} ${text}` : text;
-    } else if (x < COL_BOUNDS.OP_STOCK.max) {
-      fields.opStock = fields.opStock ? `${fields.opStock} ${text}` : text;
-    } else if (x < COL_BOUNDS.UNIT.max) {
-      fields.unit = fields.unit ? `${fields.unit} ${text}` : text;
+    if (layoutType === 'STOCK_STATUS') {
+      if (x < bounds.NAME.max) {
+        fields.name = fields.name ? `${fields.name} ${text}` : text;
+      } else if (x < bounds.OP_STOCK.max) {
+        fields.opStock = fields.opStock ? `${fields.opStock} ${text}` : text;
+      } else if (x < bounds.UNIT.max) {
+        fields.unit = fields.unit ? `${fields.unit} ${text}` : text;
+      } else if (x < bounds.MRP.max) {
+        fields.mrp = fields.mrp ? `${fields.mrp} ${text}` : text;
+      } else {
+        fields.rack = fields.rack ? `${fields.rack} ${text}` : text;
+      }
     } else {
-      fields.rack = fields.rack ? `${fields.rack} ${text}` : text;
+      if (x < bounds.NAME.max) {
+        fields.name = fields.name ? `${fields.name} ${text}` : text;
+      } else if (x < bounds.ALIAS.max) {
+        fields.alias = fields.alias ? `${fields.alias} ${text}` : text;
+      } else if (x < bounds.PARENT_GROUP.max) {
+        fields.parentGroup = fields.parentGroup ? `${fields.parentGroup} ${text}` : text;
+      } else if (x < bounds.OP_STOCK.max) {
+        fields.opStock = fields.opStock ? `${fields.opStock} ${text}` : text;
+      } else if (x < bounds.UNIT.max) {
+        fields.unit = fields.unit ? `${fields.unit} ${text}` : text;
+      } else {
+        fields.rack = fields.rack ? `${fields.rack} ${text}` : text;
+      }
     }
   }
 
