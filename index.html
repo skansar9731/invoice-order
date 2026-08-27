@@ -52,6 +52,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
+  <!-- SheetJS for Client-Side Busy Entry Sheet Excel (.xlsx) Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
   <!-- Custom Styles -->
   <link rel="stylesheet" href="./css/styles.css">
 </head>
@@ -72,12 +75,11 @@
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h1 class="text-base sm:text-lg font-extrabold tracking-tight">MAHARASHTRA AUTOMOBILE</h1>
+              <h1 class="text-base sm:text-lg font-extrabold tracking-tight">MH AUTO</h1>
               <span
                 class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">PWA
                 Local</span>
             </div>
-            <p class="text-xs text-slate-400">AI Handwritten Order &rarr; Busy Entry Sheet Utility</p>
           </div>
         </div>
 
@@ -93,27 +95,70 @@
             <span class="text-slate-400">products</span>
           </div>
 
-          <!-- AI Status Badge -->
-          <span id="stat-ai-status"
-            class="text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            AI: Not Connected
-          </span>
-
           <!-- Offline Indicator -->
           <div id="offline-indicator"
             class="hidden flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2.5 py-1 rounded text-xs font-bold">
             <span>⚠ Offline Mode</span>
           </div>
 
+          <!-- Mobile Hamburger Menu Button (Visible on screens < 768px) -->
+          <button id="btn-mobile-menu" type="button"
+            class="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-600 transition"
+            aria-controls="mobile-menu" aria-expanded="false" aria-label="Toggle navigation menu">
+            <svg id="hamburger-icon" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none"
+              viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+            <svg id="close-icon" class="hidden h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none"
+              viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
         </div>
 
       </div>
     </div>
 
-    <!-- Navigation Tabs Bar -->
-    <div class="bg-slate-800/90 border-t border-slate-700/50">
+    <!-- Mobile Navigation Drawer / Dropdown (Visible on screens < 768px) -->
+    <div id="mobile-menu"
+      class="hidden md:hidden bg-slate-800 border-t border-slate-700/80 px-4 pt-3 pb-4 space-y-2 shadow-2xl transition-all duration-200">
+      <div class="space-y-1">
+        <button data-tab-target="tab-order"
+          class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-bold bg-slate-900 text-white shadow-sm transition text-left">
+          <span class="text-base">📝</span>
+          <span>Customer Order Entry</span>
+        </button>
+        <button data-tab-target="tab-stock"
+          class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700/60 hover:text-white transition text-left">
+          <span class="text-base">📦</span>
+          <span>Product Master &amp; Stock Import</span>
+        </button>
+        <button data-tab-target="tab-search"
+          class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700/60 hover:text-white transition text-left">
+          <span class="text-base">🔍</span>
+          <span>Quick Part Lookup</span>
+        </button>
+        <button data-tab-target="tab-settings"
+          class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700/60 hover:text-white transition text-left">
+          <span class="text-base">⚙️</span>
+          <span>AI &amp; Settings</span>
+        </button>
+      </div>
+
+      <!-- Mobile Menu Footer Status -->
+      <div class="pt-3 mt-2 border-t border-slate-700 flex items-center justify-between text-xs text-slate-400">
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span>Master: <b id="stat-product-count-mobile" class="text-white">0</b> items</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Desktop Navigation Tabs Bar (Visible on screens >= 768px) -->
+    <div class="hidden md:block bg-slate-800/90 border-t border-slate-700/50">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <nav class="flex space-x-1 py-1.5 overflow-x-auto" aria-label="Tabs">
+        <nav class="flex space-x-1 py-1.5" aria-label="Tabs">
           <button data-tab-target="tab-order"
             class="px-3.5 py-1.5 rounded-md text-xs font-bold bg-slate-900 text-white shadow-sm transition whitespace-nowrap">
             📝 Customer Order Entry
@@ -152,9 +197,7 @@
               <span>1. Upload Customer Order Slips</span>
               <span class="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Step 1</span>
             </h2>
-            <p class="text-xs text-slate-500 mt-0.5">
-              Upload customer handwritten spare-parts slips. (Powered by Google Gemini 3.6 Flash Vision API).
-            </p>
+
           </div>
 
           <div class="flex items-center gap-2">
@@ -171,11 +214,12 @@
 
           <!-- Dropzone & Multi-Image Gallery -->
           <div class="lg:col-span-8 space-y-4">
-            
+
             <!-- Main Dropzone -->
             <div id="order-dropzone" tabindex="0" role="button" aria-label="Upload Customer Order Slips"
               class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50/60 hover:bg-slate-100/60 rounded-xl p-6 sm:p-7 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[170px] focus:outline-none focus:ring-2 focus:ring-slate-800">
-              <input type="file" id="order-image-input" accept="image/jpeg,image/png,image/webp" multiple class="hidden">
+              <input type="file" id="order-image-input" accept="image/jpeg,image/png,image/webp" multiple
+                class="hidden">
               <div
                 class="w-12 h-12 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-2xl mb-2 font-bold pointer-events-none">
                 📷
@@ -200,18 +244,22 @@
             </div>
 
             <!-- Uploaded Images Gallery (Shown when 1 or more images attached) -->
-            <div id="image-gallery-container" class="hidden space-y-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200">
+            <div id="image-gallery-container"
+              class="hidden space-y-3 bg-slate-50/90 p-4 rounded-xl border border-slate-200">
               <div class="flex items-center justify-between pb-2 border-b border-slate-200">
                 <div class="flex items-center gap-2">
                   <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Uploaded Slips</span>
-                  <span id="gallery-image-count" class="text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full">0 Images</span>
+                  <span id="gallery-image-count"
+                    class="text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full">0 Images</span>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button type="button" id="btn-add-more-images" class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
+                  <button type="button" id="btn-add-more-images"
+                    class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition flex items-center gap-1.5">
                     <span>+</span>
                     <span>Add More Images</span>
                   </button>
-                  <button type="button" id="btn-clear-all-images" class="px-2.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold transition">
+                  <button type="button" id="btn-clear-all-images"
+                    class="px-2.5 py-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg text-xs font-semibold transition">
                     Clear All
                   </button>
                 </div>
@@ -299,12 +347,20 @@
               </span>
             </div>
 
-            <!-- PRIMARY GENERATE PDF BUTTON -->
-            <button id="btn-generate-pdf"
-              class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition">
-              <span class="text-base">📄</span>
-              <span>Generate Busy Entry PDF</span>
-            </button>
+            <!-- PRIMARY GENERATE PDF & EXCEL BUTTONS -->
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button id="btn-generate-pdf"
+                class="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-lg text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition">
+                <span class="text-base">📄</span>
+                <span>Generate Busy Entry PDF</span>
+              </button>
+
+              <button id="btn-generate-excel"
+                class="inline-flex items-center gap-2 px-4 sm:px-5 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-95 text-white rounded-lg text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition">
+                <span class="text-base">📊</span>
+                <span>Export Busy Entry Excel</span>
+              </button>
+            </div>
 
           </div>
 
@@ -325,7 +381,7 @@
 
         <!-- Active Order Container: Dual View (Desktop Table + Mobile Cards) -->
         <div id="order-table-container" class="hidden">
-          
+
           <!-- Mobile Cards View (Visible on screens < 768px) -->
           <div id="order-cards-container" class="responsive-card-view space-y-3 p-3 sm:p-4 bg-slate-50/60">
             <!-- Populated dynamically with responsive cards by ui.js -->
@@ -339,13 +395,13 @@
                   <th class="px-3 py-3 text-center w-10">S.No</th>
                   <th class="px-3 py-3 min-w-[140px]">Customer Handwritten Text</th>
                   <th class="px-3 py-3 text-center w-24">Qty</th>
-                  <th class="px-3 py-3 min-w-[240px]">Matched Local Product</th>
-                  <th class="px-3 py-3 text-center min-w-[120px]">Part Number</th>
-                  <th class="px-3 py-3 text-center w-20">Rack</th>
-                  <th class="px-3 py-3 text-center w-16">Unit</th>
+                  <th class="px-3 py-3 min-w-[280px]">Item Details (Matched from Original Stock)</th>
                   <th class="px-3 py-3 text-center w-20">Stock</th>
-                  <th class="px-3 py-3 text-center min-w-[110px]">Confidence</th>
-                  <th class="px-3 py-3 text-center w-28">Actions</th>
+                  <th class="px-3 py-3 text-center w-16">Unit</th>
+                  <th class="px-3 py-3 text-center w-20">MRP</th>
+                  <th class="px-3 py-3 text-center w-20">Rack</th>
+                  <th class="px-3 py-3 text-center min-w-[100px]">Confidence</th>
+                  <th class="px-3 py-3 text-center w-24">Actions</th>
                 </tr>
               </thead>
               <tbody id="order-table-body" class="divide-y divide-slate-100 text-slate-800">
@@ -373,24 +429,14 @@
             class="w-12 h-12 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center text-2xl font-bold">
             📦
           </div>
-          <div>
-            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Local Product Master</div>
-            <div class="text-2xl font-black text-slate-900 mt-0.5">
-              <span id="stock-tab-count">7,000+</span> <span class="text-xs font-normal text-slate-500">SKUs</span>
-            </div>
-            <div id="stat-import-meta" class="text-[11px] text-slate-500 mt-1">Last imported: Sample Preset</div>
-          </div>
+
         </div>
 
         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
           <div class="w-12 h-12 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center text-2xl font-bold">
             ⚡
           </div>
-          <div>
-            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">IndexedDB Storage</div>
-            <div class="text-sm font-bold text-slate-800 mt-1">100% Local &amp; Private</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Instant matching without cloud latency</div>
-          </div>
+
         </div>
 
         <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
@@ -398,11 +444,7 @@
             class="w-12 h-12 rounded-lg bg-purple-100 text-purple-800 flex items-center justify-center text-2xl font-bold">
             📄
           </div>
-          <div>
-            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">PDF Report Importer</div>
-            <div class="text-sm font-bold text-slate-800 mt-1">Multi-page Stock PDF Parser</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Handles Part No + Name + Qty + Rack</div>
-          </div>
+
         </div>
 
       </div>
@@ -412,10 +454,7 @@
 
         <div>
           <h2 class="text-lg font-bold text-slate-900">Import Stock List PDF</h2>
-          <p class="text-xs text-slate-500 mt-1">
-            Import your complete spare parts stock report PDF (e.g. 5-page report or 6,000–10,000+ products). The system
-            extracts Part Number, Item Description, Stock Qty, Rack, and Unit.
-          </p>
+
         </div>
 
         <!-- Import Zone -->
@@ -429,47 +468,35 @@
           <h3 class="text-sm font-bold text-slate-800">Select Shop Stock PDF File</h3>
           <p class="text-xs text-slate-500 mt-1 max-w-md">
             The importer supports varying column whitespace and delimiters (e.g.
-            <code>14401K0ND00 — TEMING CHAINE SHINE BS6 — 7 — R-3 K — Pcs.</code>).
+            <code>14401K0ND00 — TEMING CHAINE SHINE BS6 — 7.000 — Pcs. — 193.00 — R-3 K</code>).
           </p>
           <button id="btn-trigger-stock-upload"
             class="mt-4 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
             Browse Stock PDF
           </button>
+          <p class="text-xs text-slate-500 mt-1">
+            Import your complete spare parts stock report PDF (e.g. 5-page report or 6,000–10,000+ products). The system
+            extracts Item Details, Qty., Unit, MRP, and Rack.
+          </p>
         </div>
 
         <!-- Merge vs Replace Explanation Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
 
-          <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
-            <div class="flex items-center gap-2 text-xs font-bold text-slate-800">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>Option 1: Update / Merge Stock</span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">
-              Updates stock quantities and rack locations for existing part numbers, adds newly discovered products, and
-              preserves all existing catalogue items.
-            </p>
-          </div>
-
-          <div class="p-4 rounded-lg bg-slate-50 border border-slate-200">
-            <div class="flex items-center gap-2 text-xs font-bold text-slate-800">
-              <span class="w-2 h-2 rounded-full bg-rose-500"></span>
-              <span>Option 2: Replace Product Master</span>
-            </div>
-            <p class="text-xs text-slate-500 mt-1">
-              Clears the entire local database and loads the fresh PDF stock list as the new single source of truth.
-              (Requires confirmation).
-            </p>
-          </div>
-
         </div>
 
         <!-- Master Management Actions -->
         <div class="pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <button id="btn-reset-sample-master"
-            class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg transition border border-slate-300">
-            ↺ Reset to Initial Demo Catalogue
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="btn-export-master-excel"
+              class="text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-4 py-2 rounded-lg transition flex items-center gap-1.5 shadow-xs">
+              <span>📊 Export Stock List to Excel (.xlsx)</span>
+            </button>
+            <button id="btn-reset-sample-master"
+              class="text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg transition border border-slate-300">
+              ↺ Reset to Initial Demo Catalogue
+            </button>
+          </div>
 
           <button id="btn-clear-master"
             class="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-4 py-2 rounded-lg transition">
@@ -490,10 +517,7 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 class="text-lg font-bold text-slate-900">Quick Part &amp; Rack Finder</h2>
-            <p class="text-xs text-slate-500 mt-0.5">
-              Instant keystroke search across all 10,000+ local products. Search by Part Number, Product Name, Rack, or
-              Keywords.
-            </p>
+
           </div>
           <span id="finder-results-count"
             class="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 self-start md:self-auto">
@@ -508,7 +532,7 @@
               🔍
             </span>
             <input type="text" id="finder-search-input"
-              placeholder="Search by Part No (e.g. 14401K0ND00), Name (e.g. chain kit, bor kit), or Rack (e.g. R-3 K)..."
+              placeholder="Search by Item Details (e.g. 21K211S BOR KIT GLAMOUR FI), MRP, or Rack (e.g. R-1 A)..."
               class="w-full text-sm pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
           </div>
         </div>
@@ -624,7 +648,7 @@
           <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             🔍
           </span>
-          <input type="text" id="manual-search-input" placeholder="Type part number, product name, or rack..."
+          <input type="text" id="manual-search-input" placeholder="Type item name, keywords, or rack..."
             class="w-full text-xs sm:text-sm pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none">
         </div>
         <div class="flex items-center justify-between mt-2 text-[11px] text-slate-500">
@@ -698,23 +722,24 @@
         <!-- Sample Rows (Dual-View: Cards on Mobile, Table on Desktop) -->
         <div>
           <div class="text-xs font-bold text-slate-700 mb-2">Sample Extracted Rows (First 15 items):</div>
-          
+
           <!-- Mobile Cards Container -->
           <div id="import-sample-cards" class="responsive-card-view space-y-2 max-h-[260px] overflow-y-auto p-1">
             <!-- Injected by app.js -->
           </div>
 
           <!-- Desktop Table Container -->
-          <div class="responsive-table-view border border-slate-200 rounded-lg overflow-hidden max-h-[260px] overflow-y-auto">
+          <div
+            class="responsive-table-view border border-slate-200 rounded-lg overflow-hidden max-h-[260px] overflow-y-auto">
             <table class="w-full text-left text-xs border-collapse">
               <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 border-b border-slate-200">
                 <tr>
                   <th class="px-3 py-2 text-center w-10">#</th>
-                  <th class="px-3 py-2">Part Number</th>
-                  <th class="px-3 py-2">Product Name</th>
-                  <th class="px-3 py-2 text-center">Stock</th>
-                  <th class="px-3 py-2 text-center">Rack</th>
+                  <th class="px-3 py-2 min-w-[240px]">Item Details</th>
+                  <th class="px-3 py-2 text-center">Qty.</th>
                   <th class="px-3 py-2 text-center">Unit</th>
+                  <th class="px-3 py-2 text-center">MRP</th>
+                  <th class="px-3 py-2 text-center">Rack</th>
                 </tr>
               </thead>
               <tbody id="import-sample-table-body" class="divide-y divide-slate-100 text-slate-800">
@@ -740,10 +765,16 @@
       <!-- Action Choice Footer -->
       <div
         class="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <button id="btn-cancel-import"
-          class="w-full sm:w-auto px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg transition">
-          Cancel
-        </button>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button id="btn-cancel-import"
+            class="w-full sm:w-auto px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-white border border-slate-300 rounded-lg transition">
+            Cancel
+          </button>
+          <button id="btn-download-preview-excel"
+            class="w-full sm:w-auto px-4 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition flex items-center justify-center gap-1.5 shadow-xs">
+            <span>📊 Download Excel (.xlsx)</span>
+          </button>
+        </div>
 
         <div class="flex items-center gap-3 w-full sm:w-auto">
           <button id="btn-confirm-merge"
@@ -773,9 +804,10 @@
         <div class="text-base font-bold">Extracting Customer Order Slips</div>
         <div id="ai-processing-step" class="text-xs text-slate-300 mt-1">Processing image 1 of 1...</div>
       </div>
-      
+
       <!-- Multi-image status tracker -->
-      <div id="ai-processing-pages-list" class="w-full space-y-1.5 max-h-40 overflow-y-auto text-left text-xs bg-slate-900/60 p-3 rounded-lg border border-slate-700">
+      <div id="ai-processing-pages-list"
+        class="w-full space-y-1.5 max-h-40 overflow-y-auto text-left text-xs bg-slate-900/60 p-3 rounded-lg border border-slate-700">
         <!-- Injected page rows: "Page 1: Extracting... / Completed (5 items)" -->
       </div>
 

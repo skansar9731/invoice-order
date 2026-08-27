@@ -211,15 +211,19 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
           }
         }
 
+        const itemDetails = item.itemDetails ? String(item.itemDetails).trim() : (partNumber + ' ' + productName).trim();
+
         const normalized = {
           partNumber,
           productName,
+          itemDetails,
           alias,
           parentGroup,
           stockQty,
           rack,
           unit,
           rate,
+          mrp: rate,
           updatedAt: new Date().toISOString()
         };
 

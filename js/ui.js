@@ -14,9 +14,31 @@ import {
   addOrderItem
 } from './orderManager.js';
 import { generateBusyOrderPDF } from './pdfGenerator.js';
+import { generateBusyOrderExcel } from './excelGenerator.js';
 import { getShopStats } from './db.js';
 
 let activeManualSelectItemId = null;
+
+/**
+ * Helper to format Item Details (Part Number + Product Name in one unified display)
+ */
+export function formatItemDetails(p) {
+  if (!p) return '';
+  if (p.itemDetails && p.itemDetails.trim()) {
+    return `<span class="font-medium text-slate-900">${escapeHtml(p.itemDetails.trim())}</span>`;
+  }
+  const part = (p.partNumber || '').trim();
+  const name = (p.productName || '').trim();
+  if (!part && !name) return '—';
+  if (!part) return escapeHtml(name);
+  if (!name || part.toUpperCase() === name.toUpperCase()) {
+    return `<span class="font-mono font-bold text-slate-900">${escapeHtml(part)}</span>`;
+  }
+  if (name.toUpperCase().startsWith(part.toUpperCase())) {
+    return `<span class="font-medium text-slate-900">${escapeHtml(name)}</span>`;
+  }
+  return `<span class="font-mono font-bold text-slate-900 mr-1.5">${escapeHtml(part)}</span><span class="font-medium text-slate-800">${escapeHtml(name)}</span>`;
+}
 
 /**
  * Toast Notification System
@@ -67,7 +89,7 @@ export function renderOrderTable() {
   const emptyState = document.getElementById('order-empty-state');
   const tableContainer = document.getElementById('order-table-container');
   const orderSummaryBar = document.getElementById('order-summary-bar');
-  
+
   if (!tableBody) return;
 
   const order = getCurrentOrder();
@@ -78,7 +100,7 @@ export function renderOrderTable() {
     document.getElementById('summary-total-items').textContent = summary.total;
     document.getElementById('summary-matched-items').textContent = summary.matched;
     document.getElementById('summary-manual-items').textContent = summary.manual;
-    
+
     const unmatchBadge = document.getElementById('summary-unmatched-badge');
     const unmatchCountEl = document.getElementById('summary-unmatched-items');
     if (summary.unmatched > 0) {
@@ -154,7 +176,7 @@ export function renderOrderTable() {
       `;
     }
 
-    // 1. DESKTOP VIEW: Table Row
+    // 1. DESKTOP VIEW: Table Row (Single Unified Item Details Column)
     if (tableBody) {
       const row = document.createElement('tr');
       row.className = `border-b border-slate-200 transition-colors ${!item.matchedProduct ? 'bg-rose-50/70 hover:bg-rose-50' : 'hover:bg-slate-50'}`;
@@ -175,9 +197,9 @@ export function renderOrderTable() {
             <button data-action="inc-qty" data-item-id="${item.id}" class="px-2 py-0.5 text-slate-600 hover:bg-slate-100 rounded-r font-bold text-xs">+</button>
           </div>
         </td>
-        <td class="px-3 py-3 min-w-[200px]">
+        <td class="px-3 py-3 min-w-[260px]">
           ${item.matchedProduct ? `
-            <div class="font-bold text-slate-900 text-sm">${escapeHtml(item.matchedProduct.productName)}</div>
+            <div class="font-bold text-slate-900 text-sm leading-snug">${formatItemDetails(item.matchedProduct)}</div>
             ${candidateOptionsHtml}
           ` : `
             <div class="text-rose-600 text-xs font-semibold flex items-center gap-1.5 py-1">
@@ -190,23 +212,21 @@ export function renderOrderTable() {
         </td>
         <td class="px-3 py-3 text-center">
           ${item.matchedProduct ? `
-            <code class="px-2 py-1 bg-slate-100 text-slate-800 rounded text-xs font-mono font-bold tracking-tight">${escapeHtml(item.matchedProduct.partNumber)}</code>
-          ` : `<span class="text-slate-400 text-xs">—</span>`}
-        </td>
-        <td class="px-3 py-3 text-center">
-          ${item.matchedProduct && item.matchedProduct.rack ? `
-            <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(item.matchedProduct.rack)}</span>
+            <div class="text-xs font-medium ${isLowStock ? 'text-amber-600 font-bold' : 'text-slate-700'}">
+              ${stockQty !== null && stockQty !== undefined ? stockQty : '—'}
+            </div>
+            ${isLowStock ? `<div class="text-[10px] text-amber-600 font-semibold">(Stock &lt; Ord)</div>` : ''}
           ` : `<span class="text-slate-400 text-xs">—</span>`}
         </td>
         <td class="px-3 py-3 text-center text-xs text-slate-600">
           ${item.matchedProduct && item.matchedProduct.unit ? escapeHtml(item.matchedProduct.unit) : '<span class="text-slate-400 text-xs">—</span>'}
         </td>
+        <td class="px-3 py-3 text-center text-xs font-bold text-slate-900">
+          ${item.matchedProduct && item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? `₹${Number(item.matchedProduct.rate).toLocaleString('en-IN')}` : '<span class="text-slate-400 text-xs">—</span>'}
+        </td>
         <td class="px-3 py-3 text-center">
-          ${item.matchedProduct ? `
-            <div class="text-xs font-medium ${isLowStock ? 'text-amber-600 font-bold' : 'text-slate-700'}">
-              ${stockQty !== null && stockQty !== undefined ? stockQty : '—'}
-            </div>
-            ${isLowStock ? `<div class="text-[10px] text-amber-600 font-semibold">(Stock &lt; Ord)</div>` : ''}
+          ${item.matchedProduct && item.matchedProduct.rack ? `
+            <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(item.matchedProduct.rack)}</span>
           ` : `<span class="text-slate-400 text-xs">—</span>`}
         </td>
         <td class="px-3 py-3 text-center whitespace-nowrap">
@@ -230,7 +250,7 @@ export function renderOrderTable() {
       tableBody.appendChild(row);
     }
 
-    // 2. MOBILE VIEW: Responsive Card (Exact Labeled Format)
+    // 2. MOBILE VIEW: Responsive Card (Exact Labeled Format with Unified Item Details)
     if (cardsContainer) {
       const card = document.createElement('div');
       card.className = `bg-white rounded-xl border-2 ${!item.matchedProduct ? 'border-rose-400 bg-rose-50/20' : 'border-slate-800'} p-4 shadow-md space-y-2.5`;
@@ -269,11 +289,11 @@ export function renderOrderTable() {
           </div>
         </div>
 
-        <!-- Matched Product -->
+        <!-- Item Details (Matched from Original Stock) -->
         <div class="border-b border-slate-200 pb-2">
-          <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Matched Local Product</div>
+          <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Item Details (Matched from Original Stock)</div>
           ${item.matchedProduct ? `
-            <div class="font-bold text-slate-900 text-sm leading-snug">${escapeHtml(item.matchedProduct.productName)}</div>
+            <div class="font-bold text-slate-900 text-sm leading-snug">${formatItemDetails(item.matchedProduct)}</div>
             ${candidateOptionsHtml}
           ` : `
             <div class="p-2.5 bg-rose-50 rounded-lg border border-rose-300 text-xs space-y-2">
@@ -286,25 +306,7 @@ export function renderOrderTable() {
         </div>
 
         ${item.matchedProduct ? `
-          <!-- Part Number -->
-          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Part Number</span>
-            <code class="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">${escapeHtml(item.matchedProduct.partNumber)}</code>
-          </div>
-
-          <!-- Rack Location -->
-          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Location</span>
-            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(item.matchedProduct.rack || '—')}</span>
-          </div>
-
-          <!-- Unit -->
-          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Unit</span>
-            <span class="font-bold text-slate-700">${escapeHtml(item.matchedProduct.unit || '—')}</span>
-          </div>
-
-          <!-- Stock -->
+          <!-- Stock Qty -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">Stock Qty</span>
             <div class="text-right">
@@ -313,6 +315,24 @@ export function renderOrderTable() {
               </span>
               ${isLowStock ? `<span class="block text-[10px] text-amber-600 font-bold">(Stock &lt; Ord)</span>` : ''}
             </div>
+          </div>
+
+          <!-- Unit -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Unit</span>
+            <span class="font-bold text-slate-700">${escapeHtml(item.matchedProduct.unit || '—')}</span>
+          </div>
+
+          <!-- MRP -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">MRP</span>
+            <span class="font-extrabold text-slate-900">${item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? `₹${Number(item.matchedProduct.rate).toLocaleString('en-IN')}` : '—'}</span>
+          </div>
+
+          <!-- Rack Location -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Location</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(item.matchedProduct.rack || '—')}</span>
           </div>
 
           <!-- Actions -->
@@ -413,16 +433,10 @@ export async function performManualModalSearch(query) {
     <div class="responsive-card-view space-y-3 p-3 bg-slate-100/70">
       ${searchResult.items.map(product => `
         <div data-select-part="${escapeHtml(product.partNumber)}" class="bg-white rounded-xl border-2 border-slate-800 p-4 shadow-md space-y-2.5 hover:bg-sky-50/50 transition cursor-pointer">
-          <!-- Part Number -->
-          <div class="flex items-start justify-between gap-2 border-b border-slate-200 pb-2">
-            <span class="font-extrabold text-slate-900 text-xs uppercase tracking-tight">Part Number</span>
-            <code class="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">${escapeHtml(product.partNumber)}</code>
-          </div>
-
-          <!-- Product Name / Description -->
+          <!-- Item Details -->
           <div class="border-b border-slate-200 pb-2">
-            <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Product Name / Description</div>
-            <div class="font-bold text-slate-900 text-sm leading-snug">${escapeHtml(product.productName)}</div>
+            <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Item Details</div>
+            <div class="font-bold text-slate-900 text-sm leading-snug">${formatItemDetails(product)}</div>
           </div>
 
           <!-- Stock Qty -->
@@ -445,7 +459,7 @@ export async function performManualModalSearch(query) {
 
           <!-- Rack Number -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Number</span>
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack</span>
             <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(product.rack || '—')}</span>
           </div>
 
@@ -465,20 +479,18 @@ export async function performManualModalSearch(query) {
       <table class="w-full text-left text-xs border-collapse">
         <thead class="bg-slate-100 text-slate-600 font-semibold sticky top-0 border-b border-slate-200 shadow-sm">
           <tr>
-            <th class="px-3 py-2.5">Part Number</th>
-            <th class="px-3 py-2.5">Product Name / Description</th>
+            <th class="px-3 py-2.5 min-w-[280px]">Item Details</th>
             <th class="px-3 py-2.5 text-center">Stock</th>
             <th class="px-3 py-2.5 text-center">Unit</th>
             <th class="px-3 py-2.5 text-center">MRP</th>
-            <th class="px-3 py-2.5 text-center">Rack Number</th>
+            <th class="px-3 py-2.5 text-center">Rack</th>
             <th class="px-3 py-2.5 text-center">Action</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 text-slate-700">
           ${searchResult.items.map(product => `
             <tr data-select-part="${escapeHtml(product.partNumber)}" class="hover:bg-sky-50/80 transition-colors cursor-pointer group">
-              <td class="px-3 py-2.5 font-mono font-bold text-slate-900">${escapeHtml(product.partNumber)}</td>
-              <td class="px-3 py-2.5 font-medium text-slate-800">${escapeHtml(product.productName)}</td>
+              <td class="px-3 py-2.5 min-w-[280px]">${formatItemDetails(product)}</td>
               <td class="px-3 py-2.5 text-center font-bold ${product.stockQty !== null && product.stockQty > 0 ? 'text-emerald-600' : 'text-slate-600'}">${product.stockQty !== null && product.stockQty !== undefined ? product.stockQty : '—'}</td>
               <td class="px-3 py-2.5 text-center text-slate-500">${escapeHtml(product.unit || '—')}</td>
               <td class="px-3 py-2.5 text-center font-bold text-slate-900">${product.rate !== null && product.rate !== undefined && product.rate !== '' ? `₹${Number(product.rate).toLocaleString('en-IN')}` : '—'}</td>
@@ -634,12 +646,20 @@ export function initUIEventListeners() {
       handleGeneratePDFClick();
     });
   }
+
+  // Generate Excel Button
+  const btnGenerateExcel = document.getElementById('btn-generate-excel');
+  if (btnGenerateExcel) {
+    btnGenerateExcel.addEventListener('click', () => {
+      handleGenerateExcelClick();
+    });
+  }
 }
 
 /**
  * Handle PDF generation with safety validation
  */
-export function handleGeneratePDFClick() {
+export async function handleGeneratePDFClick() {
   const order = getCurrentOrder();
   if (order.items.length === 0) {
     showToast('Cannot generate PDF: The order has no items.', 'warning');
@@ -657,11 +677,40 @@ export function handleGeneratePDFClick() {
   }
 
   try {
-    const filename = generateBusyOrderPDF(order);
+    const filename = await generateBusyOrderPDF(order);
     showToast(`PDF Generated successfully: ${filename}`, 'success');
   } catch (err) {
     console.error('PDF Generation error:', err);
     showToast(`Failed to generate PDF: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Handle Excel generation with safety validation
+ */
+export async function handleGenerateExcelClick() {
+  const order = getCurrentOrder();
+  if (order.items.length === 0) {
+    showToast('Cannot export Excel: The order has no items.', 'warning');
+    return;
+  }
+
+  const summary = getOrderSummary();
+  if (summary.hasUnmatched) {
+    const proceed = confirm(
+      `⚠ WARNING: There are ${summary.unmatched} unmatched item(s) in this order.\n\n` +
+      `These items will be marked as [ UNMATCHED ] on the Busy entry spreadsheet.\n\n` +
+      `Do you still want to export the Excel file now?`
+    );
+    if (!proceed) return;
+  }
+
+  try {
+    const filename = await generateBusyOrderExcel(order);
+    showToast(`Excel File exported successfully: ${filename}`, 'success');
+  } catch (err) {
+    console.error('Excel Generation error:', err);
+    showToast(`Failed to export Excel: ${err.message}`, 'error');
   }
 }
 
@@ -672,10 +721,14 @@ export async function refreshDashboardStats() {
   try {
     const stats = await getShopStats();
     const countEl = document.getElementById('stat-product-count');
+    const countMobileEl = document.getElementById('stat-product-count-mobile');
     const importMetaEl = document.getElementById('stat-import-meta');
 
     if (countEl) {
       countEl.textContent = stats.totalProducts.toLocaleString();
+    }
+    if (countMobileEl) {
+      countMobileEl.textContent = stats.totalProducts.toLocaleString();
     }
 
     if (importMetaEl) {

@@ -20,8 +20,10 @@ import {
   initUIEventListeners,
   showToast,
   refreshDashboardStats,
-  handleGeneratePDFClick
+  handleGeneratePDFClick,
+  formatItemDetails
 } from './ui.js';
+import { exportStockMasterExcel } from './excelGenerator.js';
 import { searchLocalProducts, debounce, invalidateSearchCache } from './productSearch.js';
 
 let pendingImportData = null;
@@ -64,7 +66,7 @@ function updateAIStatusBadge(isConnectedOverride = null) {
   const badge = document.getElementById('stat-ai-status');
   if (!badge) return;
   const status = getAIStatus();
-  
+
   if (isConnectedOverride === true) {
     badge.textContent = 'AI: NETLIFY / GEMINI CONNECTED';
     badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
@@ -72,7 +74,7 @@ function updateAIStatusBadge(isConnectedOverride = null) {
     badge.textContent = 'AI: Connection Error';
     badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30';
   } else if (status.mode === 'netlify') {
-    badge.textContent = 'AI: Netlify / Gemini Ready';
+    badge.textContent = '';
     badge.className = 'text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30';
   } else {
     badge.textContent = 'AI: Not Connected';
@@ -81,25 +83,69 @@ function updateAIStatusBadge(isConnectedOverride = null) {
 }
 
 /**
- * Tab Navigation Handling
+ * Tab Navigation Handling (Supports Desktop Tabs Bar and Mobile Hamburger Menu)
  */
 function initAppNavigation() {
   const tabs = document.querySelectorAll('[data-tab-target]');
   const tabContents = document.querySelectorAll('.tab-content');
+  const btnMobileMenu = document.getElementById('btn-mobile-menu');
+  const mobileMenu = document.getElementById('mobile-menu');
+  const hamburgerIcon = document.getElementById('hamburger-icon');
+  const closeIcon = document.getElementById('close-icon');
 
+  function toggleMobileMenu(forceClose = false) {
+    if (!mobileMenu) return;
+    const isCurrentlyOpen = !mobileMenu.classList.contains('hidden');
+    if (forceClose || isCurrentlyOpen) {
+      mobileMenu.classList.add('hidden');
+      if (hamburgerIcon) hamburgerIcon.classList.remove('hidden');
+      if (closeIcon) closeIcon.classList.add('hidden');
+      if (btnMobileMenu) btnMobileMenu.setAttribute('aria-expanded', 'false');
+    } else {
+      mobileMenu.classList.remove('hidden');
+      if (hamburgerIcon) hamburgerIcon.classList.add('hidden');
+      if (closeIcon) closeIcon.classList.remove('hidden');
+      if (btnMobileMenu) btnMobileMenu.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  if (btnMobileMenu) {
+    btnMobileMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleMobileMenu();
+    });
+  }
+
+  // Close mobile menu if clicked outside
+  document.addEventListener('click', (e) => {
+    if (mobileMenu && !mobileMenu.classList.contains('hidden')) {
+      if (!mobileMenu.contains(e.target) && !btnMobileMenu?.contains(e.target)) {
+        toggleMobileMenu(true);
+      }
+    }
+  });
+
+  // Handle tab clicks across both Desktop and Mobile menu items
   tabs.forEach(tab => {
     tab.addEventListener('click', (e) => {
       e.preventDefault();
       const targetId = tab.dataset.tabTarget;
 
+      // Close mobile menu on tab selection
+      toggleMobileMenu(true);
+
+      // Synchronize active classes on all matching tab buttons
       tabs.forEach(t => {
-        t.classList.remove('bg-slate-900', 'text-white', 'shadow-sm');
-        t.classList.add('text-slate-600', 'hover:bg-slate-100');
+        if (t.dataset.tabTarget === targetId) {
+          t.classList.add('bg-slate-900', 'text-white', 'shadow-sm');
+          t.classList.remove('text-slate-300', 'text-slate-600', 'hover:bg-slate-700/50', 'hover:bg-slate-700/60');
+        } else {
+          t.classList.remove('bg-slate-900', 'text-white', 'shadow-sm');
+          t.classList.add('text-slate-300');
+        }
       });
 
-      tab.classList.add('bg-slate-900', 'text-white', 'shadow-sm');
-      tab.classList.remove('text-slate-600', 'hover:bg-slate-100');
-
+      // Toggle tab content visibility
       tabContents.forEach(content => {
         if (content.id === targetId) {
           content.classList.remove('hidden');
@@ -316,7 +362,7 @@ export async function handleImageFiles(filesInput) {
     if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
       try {
         objectUrl = URL.createObjectURL(file);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const imgRecord = {
@@ -392,7 +438,7 @@ export async function processBatchExtraction() {
     try {
       // Pass actual File object to existing extractOrderFromImage
       const rawItems = await extractOrderFromImage(imgRecord.file);
-      
+
       // Tag items with sourceImage number (1-based index)
       imgRecord.extractedItems = (rawItems || []).map(item => ({
         customerText: item.customerText,
@@ -513,7 +559,7 @@ export async function removeImageById(imageId) {
   if (removed && removed.objectUrl) {
     try {
       URL.revokeObjectURL(removed.objectUrl);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   uploadedImages.splice(idx, 1);
@@ -540,7 +586,7 @@ export function clearAllImages(showNotification = true) {
     if (img.objectUrl) {
       try {
         URL.revokeObjectURL(img.objectUrl);
-      } catch (e) {}
+      } catch (e) { }
     }
   });
   uploadedImages.length = 0;
@@ -685,7 +731,7 @@ function initStockImportEvents() {
 
       try {
         showToast('Reading stock PDF pages...', 'info');
-        
+
         // Extract & Parse for Preview via coordinate parser
         const { products, warnings, totalPages } = await extractProductsFromPDF(file);
 
@@ -771,6 +817,45 @@ function initStockImportEvents() {
       }
     });
   }
+
+  // Export Master Stock to Excel (.xlsx) - Easy Software Format
+  const btnExportMasterExcel = document.getElementById('btn-export-master-excel');
+  if (btnExportMasterExcel) {
+    btnExportMasterExcel.addEventListener('click', async () => {
+      try {
+        const products = await getAllProducts();
+        if (!products || products.length === 0) {
+          showToast('No products found in local database to export.', 'warning');
+          return;
+        }
+        showToast(`Exporting ${products.length.toLocaleString()} items to Excel...`, 'info');
+        exportStockMasterExcel(products);
+        showToast('Stock List exported to Excel successfully!', 'success');
+      } catch (err) {
+        console.error('Export stock error:', err);
+        showToast('Failed to export Excel: ' + err.message, 'error');
+      }
+    });
+  }
+
+  // Download Preview Stock Excel directly from modal
+  const btnDownloadPreviewExcel = document.getElementById('btn-download-preview-excel');
+  if (btnDownloadPreviewExcel) {
+    btnDownloadPreviewExcel.addEventListener('click', () => {
+      if (!pendingImportData || !pendingImportData.validProducts || pendingImportData.validProducts.length === 0) {
+        showToast('No parsed products available to export.', 'warning');
+        return;
+      }
+      try {
+        const defaultName = (pendingImportData.file ? pendingImportData.file.name.replace(/\.pdf$/i, '') : 'Stock_List') + '_Format.xlsx';
+        exportStockMasterExcel(pendingImportData.validProducts, defaultName);
+        showToast('Stock List downloaded as Excel successfully!', 'success');
+      } catch (err) {
+        console.error('Download preview excel error:', err);
+        showToast('Failed to export Excel: ' + err.message, 'error');
+      }
+    });
+  }
 }
 
 /**
@@ -797,21 +882,31 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
     }
   }
 
+  const formatQty = (q) => {
+    if (q === null || q === undefined || q === '') return '0.000';
+    const num = Number(q);
+    return isNaN(num) ? String(q) : num.toFixed(3);
+  };
+
   // Display first 15 sample rows (both Mobile Cards & Desktop Table)
   if (sampleTableBody) {
     sampleTableBody.innerHTML = '';
     const sampleSlice = validProducts.slice(0, 15);
-    
+
     sampleSlice.forEach((item, idx) => {
       const tr = document.createElement('tr');
-      tr.className = 'border-b border-slate-100 text-xs';
+      tr.className = 'border-b border-slate-100 text-xs hover:bg-slate-50';
+      const mrpVal = (item.rate !== null && item.rate !== undefined && item.rate !== '')
+        ? item.rate
+        : (item.mrp || '');
+
       tr.innerHTML = `
         <td class="px-3 py-2 text-slate-400 text-center">${idx + 1}</td>
-        <td class="px-3 py-2 font-mono font-bold text-slate-900">${escapeHtml(item.partNumber)}</td>
-        <td class="px-3 py-2 font-medium text-slate-800">${escapeHtml(item.productName)}</td>
-        <td class="px-3 py-2 text-center font-bold text-slate-800">${item.stockQty}</td>
-        <td class="px-3 py-2 text-center">${escapeHtml(item.rack || '-')}</td>
-        <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(item.unit || 'Pcs.')}</td>
+        <td class="px-3 py-2 min-w-[240px] font-bold text-slate-900">${formatItemDetails(item)}</td>
+        <td class="px-3 py-2 text-center font-bold ${Number(item.stockQty) > 0 ? 'text-emerald-700' : 'text-slate-700'}">${formatQty(item.stockQty)}</td>
+        <td class="px-3 py-2 text-center text-slate-600">${escapeHtml(item.unit || 'Pcs.')}</td>
+        <td class="px-3 py-2 text-center font-bold text-slate-900">${mrpVal !== '' ? Number(mrpVal).toLocaleString('en-IN') : '—'}</td>
+        <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-700">${escapeHtml(item.rack || '—')}</span></td>
       `;
       sampleTableBody.appendChild(tr);
     });
@@ -824,14 +919,19 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
     sampleSlice.forEach((item, idx) => {
       const card = document.createElement('div');
       card.className = 'bg-white rounded-lg border border-slate-200 p-3 text-xs space-y-1.5 shadow-xs';
+      const mrpVal = (item.rate !== null && item.rate !== undefined && item.rate !== '')
+        ? item.rate
+        : (item.mrp || '');
+
       card.innerHTML = `
         <div class="flex items-start justify-between gap-2">
-          <div class="font-bold text-slate-900 text-sm">${idx + 1}. ${escapeHtml(item.productName)}</div>
-          <code class="font-mono font-bold text-[11px] text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">${escapeHtml(item.partNumber)}</code>
+          <div class="font-bold text-slate-900 text-sm">${idx + 1}. ${formatItemDetails(item)}</div>
         </div>
-        <div class="flex items-center justify-between text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 text-xs">
-          <div>Rack: <b class="text-slate-800">${escapeHtml(item.rack || '-')}</b></div>
-          <div>Stock: <b class="text-slate-900">${item.stockQty}</b> ${escapeHtml(item.unit || 'Pcs.')}</div>
+        <div class="grid grid-cols-2 gap-2 text-slate-600 bg-slate-50 p-2 rounded border border-slate-100 text-xs">
+          <div>Qty: <b class="text-slate-900">${formatQty(item.stockQty)}</b></div>
+          <div>Unit: <b class="text-slate-900">${escapeHtml(item.unit || 'Pcs.')}</b></div>
+          <div>MRP: <b class="text-slate-900">${mrpVal !== '' ? Number(mrpVal).toLocaleString('en-IN') : '—'}</b></div>
+          <div>Rack: <b class="text-slate-800">${escapeHtml(item.rack || '—')}</b></div>
         </div>
       `;
       sampleCardsContainer.appendChild(card);
@@ -920,44 +1020,48 @@ function renderQuickSearchResults(searchResult) {
     return;
   }
 
+  const formatQty = (q) => {
+    if (q === null || q === undefined || q === '') return '0.000';
+    const num = Number(q);
+    return isNaN(num) ? String(q) : num.toFixed(3);
+  };
+
   resultsContainer.innerHTML = `
     <!-- Mobile Cards View (< 768px) -->
     <div class="responsive-card-view space-y-3 p-3 bg-slate-100/70">
-      ${searchResult.items.map(p => `
+      ${searchResult.items.map(p => {
+    const mrpVal = (p.rate !== null && p.rate !== undefined && p.rate !== '')
+      ? p.rate
+      : (p.mrp || '');
+    return `
         <div class="bg-white rounded-xl border-2 border-slate-800 p-4 shadow-md space-y-2.5">
-          <!-- Part Number -->
-          <div class="flex items-start justify-between gap-2 border-b border-slate-200 pb-2">
-            <span class="font-extrabold text-slate-900 text-xs tracking-tight uppercase">Part Number</span>
-            <code class="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">${escapeHtml(p.partNumber)}</code>
-          </div>
-
-          <!-- Product Name / Description -->
+          <!-- Item Details -->
           <div class="border-b border-slate-200 pb-2">
-            <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Product Name / Description</div>
-            <div class="font-bold text-slate-900 text-sm leading-snug">${escapeHtml(p.productName)}</div>
+            <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Item Details</div>
+            <div class="font-bold text-slate-900 text-sm leading-snug">${formatItemDetails(p)}</div>
           </div>
 
           <!-- Stock Qty -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Stock Qty</span>
-            <span class="font-bold ${p.stockQty !== null && p.stockQty > 0 ? 'text-emerald-700 font-extrabold' : 'text-slate-700'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '—'}</span>
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Qty.</span>
+            <span class="font-bold ${p.stockQty !== null && Number(p.stockQty) > 0 ? 'text-emerald-700 font-extrabold' : 'text-slate-700'}">${formatQty(p.stockQty)}</span>
           </div>
 
           <!-- Unit -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">Unit</span>
-            <span class="font-bold text-slate-700">${escapeHtml(p.unit || '—')}</span>
+            <span class="font-bold text-slate-700">${escapeHtml(p.unit || 'Pcs.')}</span>
           </div>
 
           <!-- MRP -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">MRP</span>
-            <span class="font-extrabold text-slate-900">${p.rate !== null && p.rate !== undefined && p.rate !== '' ? `₹${Number(p.rate).toLocaleString('en-IN')}` : '—'}</span>
+            <span class="font-extrabold text-slate-900">${mrpVal !== '' ? `₹${Number(mrpVal).toLocaleString('en-IN')}` : '—'}</span>
           </div>
 
           <!-- Rack Number -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
-            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Number</span>
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack</span>
             <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(p.rack || '—')}</span>
           </div>
 
@@ -969,7 +1073,8 @@ function renderQuickSearchResults(searchResult) {
             </button>
           </div>
         </div>
-      `).join('')}
+      `;
+  }).join('')}
     </div>
 
     <!-- Desktop Table View (>= 768px) -->
@@ -977,23 +1082,25 @@ function renderQuickSearchResults(searchResult) {
       <table class="w-full text-left text-xs border-collapse">
         <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 border-b border-slate-200">
           <tr>
-            <th class="px-4 py-3">Part Number</th>
-            <th class="px-4 py-3">Product Name / Description</th>
-            <th class="px-4 py-3 text-center">Stock Qty</th>
+            <th class="px-4 py-3 min-w-[280px]">Item Details</th>
+            <th class="px-4 py-3 text-center">Qty.</th>
             <th class="px-4 py-3 text-center">Unit</th>
             <th class="px-4 py-3 text-center">MRP</th>
-            <th class="px-4 py-3 text-center">Rack Number</th>
+            <th class="px-4 py-3 text-center">Rack</th>
             <th class="px-4 py-3 text-center">Action</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 text-slate-700">
-          ${searchResult.items.map(p => `
+          ${searchResult.items.map(p => {
+    const mrpVal = (p.rate !== null && p.rate !== undefined && p.rate !== '')
+      ? p.rate
+      : (p.mrp || '');
+    return `
             <tr class="hover:bg-slate-50 transition-colors">
-              <td class="px-4 py-3 font-mono font-bold text-slate-900">${escapeHtml(p.partNumber)}</td>
-              <td class="px-4 py-3 font-medium text-slate-800 text-sm">${escapeHtml(p.productName)}</td>
-              <td class="px-4 py-3 text-center font-bold ${p.stockQty !== null && p.stockQty > 0 ? 'text-emerald-600' : 'text-slate-600'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '—'}</td>
-              <td class="px-4 py-3 text-center text-slate-500">${escapeHtml(p.unit || '—')}</td>
-              <td class="px-4 py-3 text-center font-bold text-slate-900">${p.rate !== null && p.rate !== undefined && p.rate !== '' ? `₹${Number(p.rate).toLocaleString('en-IN')}` : '—'}</td>
+              <td class="px-4 py-3 min-w-[280px]">${formatItemDetails(p)}</td>
+              <td class="px-4 py-3 text-center font-bold ${p.stockQty !== null && Number(p.stockQty) > 0 ? 'text-emerald-600' : 'text-slate-600'}">${formatQty(p.stockQty)}</td>
+              <td class="px-4 py-3 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
+              <td class="px-4 py-3 text-center font-bold text-slate-900">${mrpVal !== '' ? `₹${Number(mrpVal).toLocaleString('en-IN')}` : '—'}</td>
               <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 bg-slate-100 font-semibold rounded text-slate-700">${escapeHtml(p.rack || '—')}</span></td>
               <td class="px-4 py-3 text-center">
                 <button type="button" data-add-to-order="${escapeHtml(p.partNumber)}" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold shadow-sm transition">
@@ -1001,7 +1108,8 @@ function renderQuickSearchResults(searchResult) {
                 </button>
               </td>
             </tr>
-          `).join('')}
+          `;
+  }).join('')}
         </tbody>
       </table>
     </div>

@@ -163,7 +163,7 @@ console.log('\nTest 2: Inspecting mobile card structure & responsive attributes.
 const card1Html = mobileCards[0].innerHTML;
 const card2Html = mobileCards[1].innerHTML;
 
-const hasCard1PartNo = card1Html.includes('14401K0ND00');
+const hasCard1Item = card1Html.includes('TEMING CHAINE SHINE BS6');
 const hasCard1Rack = card1Html.includes('R-3 K');
 const hasCard1Stock = card1Html.includes('7') && card1Html.includes('Pcs.');
 const hasCard1PageBadge = card1Html.includes('#P1');
@@ -171,8 +171,8 @@ const hasCard1MatchBadge = card1Html.includes('95% Match');
 const hasCard2NoMatch = card2Html.includes('No reliable automatic match found');
 const hasCard2ManualBtn = card2Html.includes('Select Manually');
 
-if (hasCard1PartNo && hasCard1Rack && hasCard1Stock && hasCard1PageBadge && hasCard1MatchBadge && hasCard2NoMatch && hasCard2ManualBtn) {
-  console.log('  ✓ PASSED: Mobile cards contain complete responsive layout (Part No, Rack, Stock, Page Badge, Match Rating, Actions).');
+if (hasCard1Item && hasCard1Rack && hasCard1Stock && hasCard1PageBadge && hasCard1MatchBadge && hasCard2NoMatch && hasCard2ManualBtn) {
+  console.log('  ✓ PASSED: Mobile cards contain complete responsive layout (Item Details, Rack, Stock, Page Badge, Match Rating, Actions).');
 } else {
   console.error('  ✕ FAILED: Mobile card HTML missing crucial metadata!');
   process.exit(1);

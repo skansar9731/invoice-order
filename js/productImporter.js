@@ -9,20 +9,20 @@ import { invalidateSearchCache } from './productSearch.js';
 
 // Table column boundaries for Busy / Maharashtra Automobile stock report layouts
 const LAYOUT_STOCK_STATUS = {
-  NAME: { min: 20, max: 310 },
-  OP_STOCK: { min: 310, max: 360 },
-  UNIT: { min: 360, max: 410 },
-  MRP: { min: 410, max: 490 },
-  RACK: { min: 490, max: 600 }
+  NAME: { min: 20, max: 320 },
+  OP_STOCK: { min: 320, max: 365 },
+  UNIT: { min: 365, max: 410 },
+  MRP: { min: 410, max: 488 },
+  RACK: { min: 488, max: 600 }
 };
 
 const LAYOUT_LIST_OF_ITEMS = {
   NAME: { min: 20, max: 205 },
   ALIAS: { min: 205, max: 369 },
   PARENT_GROUP: { min: 369, max: 440 },
-  OP_STOCK: { min: 440, max: 480 },
-  UNIT: { min: 480, max: 512 },
-  RACK: { min: 512, max: 600 }
+  OP_STOCK: { min: 440, max: 485 },
+  UNIT: { min: 485, max: 505 },
+  RACK: { min: 505, max: 600 }
 };
 
 /**
@@ -43,25 +43,15 @@ export async function extractProductsFromPDF(file, onProgress = null) {
   const productMap = new Map();
   const warnings = [];
 
-  // Detect report layout format by sampling initial pages
-  let layoutType = 'LIST_OF_ITEMS';
-  for (let p = 1; p <= Math.min(3, numPages); p++) {
-    try {
-      const samplePage = await pdf.getPage(p);
-      const sampleTc = await samplePage.getTextContent();
-      const sampleText = sampleTc.items.map(i => i.str).join(' ');
-      if (sampleText.includes('Stock Status') || (sampleText.includes('Item Details') && sampleText.includes('MRP'))) {
-        layoutType = 'STOCK_STATUS';
-        break;
-      }
-    } catch (e) {}
-  }
-
-  const bounds = layoutType === 'STOCK_STATUS' ? LAYOUT_STOCK_STATUS : LAYOUT_LIST_OF_ITEMS;
-
   for (let pageNum = 1; pageNum <= numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const textContent = await page.getTextContent();
+
+    // Determine layout type dynamically per page
+    const pageText = textContent.items.map(i => i.str).join(' ').toLowerCase();
+    const isStockStatus = pageText.includes('stock status') || (pageText.includes('item details') && pageText.includes('mrp'));
+    const layoutType = isStockStatus ? 'STOCK_STATUS' : 'LIST_OF_ITEMS';
+    const bounds = isStockStatus ? LAYOUT_STOCK_STATUS : LAYOUT_LIST_OF_ITEMS;
 
     // Group text items by approximate Y-coordinate (baseline grouping)
     const itemsByY = {};
@@ -125,20 +115,22 @@ export async function extractProductsFromPDF(file, onProgress = null) {
         if (!isNaN(numMrp)) rate = numMrp;
       }
 
-      const rack = fields.rack || '';
-      const unit = fields.unit || '';
+      const rack = fields.rack ? fields.rack.trim() : '';
+      const unit = fields.unit ? fields.unit.trim() : '';
       const alias = parsed.alias || fields.alias || '';
       const parentGroup = fields.parentGroup || '';
 
       const newProduct = {
         partNumber: parsed.partNumber,
         productName: parsed.productName,
+        itemDetails: parsed.itemDetails || fields.name.trim(),
         alias,
         parentGroup,
         stockQty,
         unit,
         rack,
         rate,
+        mrp: rate,
         page: pageNum
       };
 
@@ -158,6 +150,7 @@ export async function extractProductsFromPDF(file, onProgress = null) {
         else if (prev.stockQty !== null && prev.stockQty > 0 && (newProduct.stockQty === null || newProduct.stockQty <= 0)) {
           if (!prev.rack && newProduct.rack) prev.rack = newProduct.rack;
           if (!prev.rate && newProduct.rate) prev.rate = newProduct.rate;
+          if (!prev.itemDetails && newProduct.itemDetails) prev.itemDetails = newProduct.itemDetails;
           if (!prev.alias && newProduct.alias) prev.alias = newProduct.alias;
         }
         // 3. If both have stock, sum stock and prefer populated rack & rate
@@ -165,6 +158,7 @@ export async function extractProductsFromPDF(file, onProgress = null) {
           prev.stockQty = prev.stockQty + newProduct.stockQty;
           if (!prev.rack && newProduct.rack) prev.rack = newProduct.rack;
           if (!prev.rate && newProduct.rate) prev.rate = newProduct.rate;
+          if (!prev.itemDetails && newProduct.itemDetails) prev.itemDetails = newProduct.itemDetails;
         }
         // 4. If neither has stock, prefer the one with rack / rate / longer description
         else {
@@ -254,30 +248,30 @@ function extractRowFields(items, bounds = LAYOUT_LIST_OF_ITEMS, layoutType = 'LI
  * Separate Part Number, Product Description, Rate, and trailing Alias
  */
 export function parseNameField(rawName, existingAlias = '') {
-  if (!rawName) return { partNumber: '', productName: '', alias: existingAlias, rate: null };
+  if (!rawName) return { partNumber: '', productName: '', itemDetails: '', alias: existingAlias, rate: null };
 
-  let text = rawName.trim();
+  const fullOriginalItemDetails = rawName.trim();
+  let text = fullOriginalItemDetails;
   let alias = (existingAlias || '').trim();
   let rate = null;
 
-  // Check if text has a rate marker (e.g. " 193/- " or " 3290/-- ") followed by trailing alias text
-  const rateWithTrailingAlias = text.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*(?:\/[-–—.]*|\/\s*\d+[-–—.]*|\s*\/)?(?:\s+\d+(?:\.\d+)?\s*(?:\/[-–—.]*)?)*)\s+([A-Za-z0-9\-_./].*)$/);
-  
-  if (rateWithTrailingAlias) {
-    text = rateWithTrailingAlias[1].trim();
-    const rateStr = rateWithTrailingAlias[2].trim();
-    const trailingAlias = rateWithTrailingAlias[3].trim();
-    
-    const numMatch = rateStr.match(/\d+(?:\.\d+)?/);
-    if (numMatch) rate = parseFloat(numMatch[0]);
-    if (!alias) alias = trailingAlias;
+  // Extract rate from rate markers (e.g. " 193/- ", " 3290/-- ", " 2050/- 2255/- ", " 59/- ")
+  const priceEndMatch = text.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*\/(?:[-–—.]*|\s*\d+[-–—.]*|\s*\/)?(?:\s+\d+(?:\.\d+)?\s*\/(?:[-–—.]*)?)*)$/);
+  if (priceEndMatch && priceEndMatch[1].trim().length >= 3) {
+    const candidateRateStr = priceEndMatch[2].trim();
+    const nums = candidateRateStr.match(/\d+(?:\.\d+)?/g);
+    if (nums && nums.length > 0) {
+      rate = parseFloat(nums[nums.length - 1]);
+    }
   } else {
-    // Normal rate at end of name
-    const rateMatch = text.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*(?:\/[-–—.]*|\/\s*\d+[-–—.]*|\s*\/)?(?:\s+\d+(?:\.\d+)?\s*(?:\/[-–—.]*)?)*)$/);
-    if (rateMatch && rateMatch[1].length > 3) {
-      text = rateMatch[1].trim();
-      const numMatch = rateMatch[2].match(/\d+(?:\.\d+)?/);
+    // Check if rate is with trailing alias e.g. " 193/- ALIAS"
+    const rateWithTrailingAlias = text.match(/^(.*?)\s+(\d+(?:\.\d+)?\s*\/(?:[-–—.]*|\s*\d+[-–—.]*|\s*\/)?)\s+([A-Za-z0-9\-_./].*)$/);
+    if (rateWithTrailingAlias && rateWithTrailingAlias[1].trim().length >= 3) {
+      const rateStr = rateWithTrailingAlias[2].trim();
+      const trailingAlias = rateWithTrailingAlias[3].trim();
+      const numMatch = rateStr.match(/\d+(?:\.\d+)?/);
       if (numMatch) rate = parseFloat(numMatch[0]);
+      if (!alias) alias = trailingAlias;
     }
   }
 
@@ -299,7 +293,7 @@ export function parseNameField(rawName, existingAlias = '') {
     const tokens = text.split(/\s+/);
     if (tokens.length >= 2) {
       const firstToken = tokens[0];
-      const isPartNo = /^[A-Z0-9\-_./]+$/i.test(firstToken) && 
+      const isPartNo = /^[A-Z0-9\-_./]+$/i.test(firstToken) &&
         (firstToken.length >= 3 || /^\d+$/.test(firstToken)) &&
         !['TOTAL', 'PAGE', 'GRAND', 'MAHARASHTRA', 'LIST', 'NAME', 'CASH', 'BILL', 'TATA', 'CASTROL', 'MEERO', 'HERO', 'HONDA', 'BAJAJ', 'BOSCH', 'ZODIX', 'STAR', 'MINDA', 'ASK', 'VARROC', 'ENDURANCE', 'ROLON'].includes(firstToken.toUpperCase());
 
@@ -316,7 +310,7 @@ export function parseNameField(rawName, existingAlias = '') {
     }
   }
 
-  return { partNumber: partNumber.trim(), productName: productName.trim(), alias, rate };
+  return { partNumber: partNumber.trim(), productName: productName.trim(), itemDetails: fullOriginalItemDetails, alias, rate };
 }
 
 /**
