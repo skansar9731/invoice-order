@@ -1,6 +1,6 @@
 {
-  "name": "Maharashtra Automobile — AI Spare Parts Order PWA",
-  "short_name": "SpareParts Order",
+  "name": "MH Ai",
+  "short_name": "MH Ai",
   "description": "Local-first AI handwritten spare parts order transcription and Busy entry sheet generator",
   "start_url": "./index.html",
   "display": "standalone",
