@@ -243,7 +243,7 @@ export async function selectDriveRootFolder() {
         .setOAuthToken(token)
         .setAppId(appId)
         .setTitle(`Select the "${GOOGLE_DRIVE_ROOT_FOLDER_NAME}" Folder`)
-        .setCallback((data) => {
+        .setCallback(async (data) => {
           if (data.action === window.google.picker.Action.PICKED) {
             const doc = data.docs?.[0];
             if (!doc) {
@@ -253,14 +253,26 @@ export async function selectDriveRootFolder() {
 
             const selectedId = doc.id;
             const selectedName = (doc.name || '').trim();
+            const isFolderType = doc.type === 'folder' ||
+                                 doc.mimeType === 'application/vnd.google-apps.folder' ||
+                                 doc.mimeType === 'application/vnd.google-apps.shortcut' ||
+                                 (!doc.type && !doc.mimeType);
 
-            // Strict validation: ID must match canonical folder ID 1oBMIcaBTYILseV39YnRuX1U_sO7vxFK
-            if (selectedId !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+            // 1. Folder name === "MH SALES ORDER" (case-insensitive)
+            // 2. Selected item is actually a folder
+            if (selectedName.toUpperCase() !== GOOGLE_DRIVE_ROOT_FOLDER_NAME.toUpperCase() || !isFolderType) {
               reject(new Error('Please select the existing MH SALES ORDER folder.'));
               return;
             }
 
-            // Save locally for this authenticated account
+            // 3. Folder is accessible to the authenticated user
+            const hasAccess = await verifyFolderAccess(selectedId, token);
+            if (!hasAccess) {
+              reject(new Error('Please select the existing MH SALES ORDER folder.'));
+              return;
+            }
+
+            // 4. Store the folder ID returned by Picker for the CURRENT authenticated Google account
             const email = currentAuthorizedUserEmail;
             try {
               if (typeof localStorage !== 'undefined') {
@@ -292,6 +304,7 @@ export async function selectDriveRootFolder() {
  * Validate accessibility of a folder ID via Google Drive REST API
  */
 async function verifyFolderAccess(folderId, token) {
+  if (!folderId) return false;
   try {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,trashed,mimeType`, {
       headers: {
@@ -302,6 +315,11 @@ async function verifyFolderAccess(folderId, token) {
     if (!res.ok) return false;
     const data = await res.json();
     if (data.trashed) return false;
+    if (data.mimeType &&
+        data.mimeType !== 'application/vnd.google-apps.folder' &&
+        data.mimeType !== 'application/vnd.google-apps.shortcut') {
+      return false;
+    }
     return true;
   } catch {
     return false;
@@ -309,15 +327,15 @@ async function verifyFolderAccess(folderId, token) {
 }
 
 /**
- * Resolve the canonical MH SALES ORDER root folder ID.
- * Enforces per-account authorization via Google Picker on first use.
- * Strictly guarantees that ONLY 1oBMIcaBTYILseV39YnRuX1U_sO7vxFK is ever used.
+ * Resolve the root folder ID for the authenticated user.
+ * Allows each account to authorize/select the shared "MH SALES ORDER" folder via Google Picker.
+ * Uses the folder ID returned by Picker for the current user and persists it.
  */
 export async function resolveDriveRootFolder() {
   const token = await authorizeGoogleDrive(true);
   const email = currentAuthorizedUserEmail;
 
-  // 1. Check if this specific email account has already authorized the canonical folder
+  // 1. Check if this specific email account has already authorized a root folder ID
   let authorizedRootId = null;
   try {
     if (typeof localStorage !== 'undefined') {
@@ -332,16 +350,16 @@ export async function resolveDriveRootFolder() {
     console.warn('Unable to read localStorage:', e);
   }
 
-  // 2. If already authorized for this email and matches canonical ID, verify access
-  if (authorizedRootId === GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+  // 2. If already authorized for this email, verify accessibility
+  if (authorizedRootId) {
     const hasAccess = await verifyFolderAccess(authorizedRootId, token);
     if (hasAccess) {
-      return GOOGLE_DRIVE_ROOT_FOLDER_ID;
+      return authorizedRootId;
     }
   }
 
-  // 3. Backward compatibility for primary account:
-  // If primary account (maharashtraautomobile313@gmail.com) already owns the folder and has active access
+  // 3. For primary account (maharashtraautomobile313@gmail.com):
+  // Check if owner's canonical folder ID is accessible directly without opening Picker
   if (email === 'maharashtraautomobile313@gmail.com') {
     const primaryAccess = await verifyFolderAccess(GOOGLE_DRIVE_ROOT_FOLDER_ID, token);
     if (primaryAccess) {
@@ -356,12 +374,10 @@ export async function resolveDriveRootFolder() {
     }
   }
 
-  // 4. For any account that has not authorized MH SALES ORDER via Picker (e.g. second account mycollectionr@gmail.com):
-  // Prompt user via Google Picker to explicitly authorize the existing MH SALES ORDER folder
+  // 4. For any account that has not yet authorized or whose stored folder is inaccessible:
+  // Prompt user via Google Picker to select the existing MH SALES ORDER folder
   const selectedId = await selectDriveRootFolder();
-
-  // 5. Critical validation: Must match canonical ID
-  if (selectedId !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+  if (!selectedId) {
     throw new Error('Google Drive access to the MH SALES ORDER folder is required. Please authorize/select the existing folder.');
   }
 
@@ -398,20 +414,19 @@ export function getMonthFolderName(orderDate) {
 }
 
 /**
- * Find or create the month folder (e.g. "SEPTEMBER 2026") under canonical MH SALES ORDER.
+ * Find or reuse the month folder (e.g. "SEPTEMBER 2026") under the user's authorized root folder.
  * Guarantees no duplicate month folders across all authorized Google accounts.
  */
 export async function getOrCreateMonthFolder(monthFolderName) {
   const token = await authorizeGoogleDrive(true);
   const rootId = await resolveDriveRootFolder();
 
-  // CRITICAL VALIDATION: Verify resolved root folder ID is strictly canonical ID
-  if (rootId !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+  if (!rootId) {
     throw new Error('Google Drive access to the MH SALES ORDER folder is required. Please authorize/select the existing folder.');
   }
 
-  // 1. Search for existing month folder under root in My Drive space
-  const query = `mimeType = 'application/vnd.google-apps.folder' and '${GOOGLE_DRIVE_ROOT_FOLDER_ID}' in parents and name = '${monthFolderName.replace(/'/g, "\\'")}' and trashed = false`;
+  // 1. Search for existing month folder under the user's authorized root folder in My Drive space
+  const query = `mimeType = 'application/vnd.google-apps.folder' and '${rootId}' in parents and name = '${monthFolderName.replace(/'/g, "\\'")}' and trashed = false`;
   const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)&spaces=drive`;
 
   const searchRes = await fetch(searchUrl, {
@@ -428,7 +443,7 @@ export async function getOrCreateMonthFolder(monthFolderName) {
     return searchData.files[0].id;
   }
 
-  // 2. Create month folder inside canonical root ONLY if not found
+  // 2. Create month folder inside user's root folder ONLY if not found
   const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name', {
     method: 'POST',
     headers: {
@@ -438,7 +453,7 @@ export async function getOrCreateMonthFolder(monthFolderName) {
     body: JSON.stringify({
       name: monthFolderName,
       mimeType: 'application/vnd.google-apps.folder',
-      parents: [GOOGLE_DRIVE_ROOT_FOLDER_ID]
+      parents: [rootId]
     })
   });
 

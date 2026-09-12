@@ -231,11 +231,19 @@ globalThis.fetch = async (url, options = {}) => {
     };
   }
 
-  // 1. Verify root folder access
-  if (url.includes(`/files/${GOOGLE_DRIVE_ROOT_FOLDER_ID}?`)) {
+  // 1. Verify folder access (GET metadata on non-upload endpoint)
+  if (method === 'GET' && url.startsWith('https://www.googleapis.com/drive/v3/files/') && !url.includes('?q=')) {
+    if (globalThis._mockInaccessibleFolder) {
+      return { ok: false, status: 404, text: async () => 'Not Found' };
+    }
     return {
       ok: true,
-      json: async () => ({ id: GOOGLE_DRIVE_ROOT_FOLDER_ID, name: GOOGLE_DRIVE_ROOT_FOLDER_NAME, trashed: false })
+      json: async () => ({
+        id: GOOGLE_DRIVE_ROOT_FOLDER_ID,
+        name: GOOGLE_DRIVE_ROOT_FOLDER_NAME,
+        mimeType: 'application/vnd.google-apps.folder',
+        trashed: false
+      })
     };
   }
 
@@ -446,17 +454,17 @@ if (!mockModalElements['drive-export-success-modal'].classList.contains('hidden'
 console.log('✓ PASSED: Modal successfully dismissed on Close action.\n');
 
 // -------------------------------------------------------------
-// TEST 7: Multi-User Account Folder Targeting & Picker Flow
+// TEST 7: Multi-User Account Folder Targeting & Validation
 // -------------------------------------------------------------
 console.log('--- TEST 7: Multi-User Account Folder Targeting & Validation ---');
 import { resolveDriveRootFolder, getOrCreateMonthFolder, resetGoogleDriveAuth } from './js/googleDriveService.js';
 
-// 7a. Second user (mycollectionr@gmail.com) logs in for first time
+// 7a. Second user (mycollectionr@gmail.com) logs in
 resetGoogleDriveAuth();
 globalThis._mockCurrentEmail = 'mycollectionr@gmail.com';
 
-// If user selects wrong folder
-globalThis._mockPickerDoc = { id: 'wrong-folder-id-777', name: 'MY OTHER FOLDER' };
+// If user selects wrong folder name
+globalThis._mockPickerDoc = { id: 'wrong-folder-id-777', name: 'MY OTHER FOLDER', type: 'folder' };
 let wrongFolderError = null;
 try {
   await resolveDriveRootFolder();
@@ -467,30 +475,69 @@ try {
 if (wrongFolderError !== 'Please select the existing MH SALES ORDER folder.') {
   throw new Error(`Expected error "Please select the existing MH SALES ORDER folder.", got: "${wrongFolderError}"`);
 }
-console.log('✓ PASSED: Rejecting wrong folder selection with exact message: "Please select the existing MH SALES ORDER folder."');
+console.log('✓ PASSED: Rejecting wrong folder name with exact message: "Please select the existing MH SALES ORDER folder."');
 
-// 7b. User selects correct canonical MH SALES ORDER folder
-globalThis._mockPickerDoc = { id: GOOGLE_DRIVE_ROOT_FOLDER_ID, name: GOOGLE_DRIVE_ROOT_FOLDER_NAME };
+// If user selects a file instead of a folder
+globalThis._mockPickerDoc = { id: 'some-file-id-888', name: 'MH SALES ORDER', type: 'file', mimeType: 'application/pdf' };
+let nonFolderError = null;
+try {
+  await resolveDriveRootFolder();
+} catch (e) {
+  nonFolderError = e.message;
+}
+if (nonFolderError !== 'Please select the existing MH SALES ORDER folder.') {
+  throw new Error(`Expected error "Please select the existing MH SALES ORDER folder." for non-folder, got: "${nonFolderError}"`);
+}
+console.log('✓ PASSED: Rejecting non-folder item selection.');
+
+// 7b. Second user selects shared "MH SALES ORDER" folder whose ID is DIFFERENT from owner's hardcoded ID
+const secondUserFolderId = 'shared-folder-rep-mycollectionr-999';
+globalThis._mockPickerDoc = { id: secondUserFolderId, name: GOOGLE_DRIVE_ROOT_FOLDER_NAME, type: 'folder' };
 const resolvedId = await resolveDriveRootFolder();
-if (resolvedId !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
-  throw new Error(`Expected canonical root folder ID ${GOOGLE_DRIVE_ROOT_FOLDER_ID}, got: ${resolvedId}`);
+
+if (resolvedId !== secondUserFolderId) {
+  throw new Error(`Expected selected folder ID ${secondUserFolderId}, got: ${resolvedId}`);
 }
 const storedSecondUserKey = 'googleDriveRootFolderId_mycollectionr@gmail.com';
-if (globalThis.localStorage.getItem(storedSecondUserKey) !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+if (globalThis.localStorage.getItem(storedSecondUserKey) !== secondUserFolderId) {
   throw new Error('Authorized folder ID must be saved per-account in localStorage.');
 }
-console.log('✓ PASSED: Canonical MH SALES ORDER authorized and stored specifically for mycollectionr@gmail.com.');
+console.log('✓ PASSED: Folder accepted even when ID differs from owner canonical ID. Saved specifically for mycollectionr@gmail.com.');
 
-// 7c. Second user exports into month folder -> Uses SAME existing September 2026 folder
+// 7c. Second user exports into month folder -> Resolves inside secondUserFolderId and reuses existing SEPTEMBER 2026
 fetchCalls = [];
 const secondUserMonthFolderId = await getOrCreateMonthFolder('SEPTEMBER 2026');
 if (secondUserMonthFolderId !== 'mock-september-folder-id') {
   throw new Error(`Expected existing month folder mock-september-folder-id, got: ${secondUserMonthFolderId}`);
 }
-const queryCall = fetchCalls.find(c => c.url.includes('SEPTEMBER%202026') && c.url.includes('spaces=drive'));
+
+const queryCall = fetchCalls.find(c => c.url.includes('SEPTEMBER%202026') && c.url.includes(encodeURIComponent(secondUserFolderId)));
 if (!queryCall) {
-  throw new Error('Expected spaces=drive in month folder search query to discover folder in My Drive space.');
+  throw new Error(`Expected query to search for month folder inside user's selected root folder ID (${secondUserFolderId}).`);
 }
-console.log('✓ PASSED: Second user queried My Drive space and reused the EXACT same SEPTEMBER 2026 folder without creating a duplicate!');
+console.log('✓ PASSED: Second user queried within their authorized root folder ID and reused the existing SEPTEMBER 2026 folder without creating a duplicate!');
+
+// 7d. Upload PDF and Excel as second user
+const secondUserPdfResult = await uploadOrUpdateDriveFile({
+  filename: 'ORD-260912-002_Busy_Entry_Sheet.pdf',
+  mimeType: 'application/pdf',
+  blob: new Blob(['pdf-second-user'], { type: 'application/pdf' }),
+  orderDate: '2026-09-12'
+});
+if (!secondUserPdfResult || !secondUserPdfResult.fileId) {
+  throw new Error('PDF upload failed for second user.');
+}
+console.log('✓ PASSED: Second user successfully uploaded PDF into shared folder structure.');
+
+const secondUserExcelResult = await uploadOrUpdateDriveFile({
+  filename: 'ORD-260912-002_Busy_Entry_Sheet.xlsx',
+  mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  blob: new Blob(['excel-second-user'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+  orderDate: '2026-09-12'
+});
+if (!secondUserExcelResult || !secondUserExcelResult.fileId) {
+  throw new Error('Excel upload failed for second user.');
+}
+console.log('✓ PASSED: Second user successfully uploaded Excel into shared folder structure.');
 
 console.log('\n=== ALL GOOGLE DRIVE INTEGRATION & MULTI-USER TESTS PASSED 100%! ===');
