@@ -17,12 +17,12 @@ class MockDoc {
       getNumberOfPages: () => 1
     };
   }
-  setFont() {}
-  setFontSize() {}
-  setTextColor() {}
-  setDrawColor() {}
-  setLineWidth() {}
-  line() {}
+  setFont() { }
+  setFontSize() { }
+  setTextColor() { }
+  setDrawColor() { }
+  setLineWidth() { }
+  line() { }
   text(str, x, y) {
     drawnTexts.push({ str, x, y });
   }

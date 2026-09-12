@@ -84,7 +84,7 @@ export async function generateBusyOrderExcel(order) {
     const XLSX = window.XLSX;
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: Busy Entry Sheet
+    // Sheet 1: Busy Entry Sheet (10 columns - Product Table unchanged)
     const wsBusy = XLSX.utils.aoa_to_sheet([busyHeaders, ...busyRows]);
     wsBusy['!cols'] = [
       { wch: 8 },  // S. No
@@ -100,7 +100,7 @@ export async function generateBusyOrderExcel(order) {
     ];
     XLSX.utils.book_append_sheet(wb, wsBusy, 'Busy Entry Sheet');
 
-    // Sheet 2: Easy Software Format (5 columns)
+    // Sheet 2: Easy Software Format (5 columns - Product Table unchanged)
     const wsEasy = XLSX.utils.aoa_to_sheet([easyHeaders, ...easyRows]);
     wsEasy['!cols'] = [
       { wch: 46 }, // Item Details
@@ -111,12 +111,41 @@ export async function generateBusyOrderExcel(order) {
     ];
     XLSX.utils.book_append_sheet(wb, wsEasy, 'Easy Software Format');
 
+    // Sheet 3: Order Details (Order-level information)
+    const customerName = order.customerName || '';
+    const createdBy = order.createdBy || '';
+    const checkedBy = order.checkedBy || '';
+    const dateStr = order.orderDate || new Date().toISOString().split('T')[0];
+    const timeStr = order.orderTime || '';
+
+    const orderDetailsData = [
+      ['Order Information', ''],
+      ['Order No', orderNo],
+      ['Date', `${dateStr} ${timeStr}`.trim()],
+      ['Customer Name', customerName],
+      ['Created By', createdBy],
+      ['Checked By', checkedBy],
+      ['Total Items', exportRows.length]
+    ];
+    const wsOrderDetails = XLSX.utils.aoa_to_sheet(orderDetailsData);
+    wsOrderDetails['!cols'] = [
+      { wch: 20 },
+      { wch: 40 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsOrderDetails, 'Order Details');
+
     // Write file directly to download
     XLSX.writeFile(wb, filename);
     return filename;
   }
 
   // Fallback: Export clean CSV if XLSX library is not loaded
+  const customerName = order.customerName || '';
+  const createdBy = order.createdBy || '';
+  const checkedBy = order.checkedBy || '';
+  const dateStr = order.orderDate || new Date().toISOString().split('T')[0];
+  const timeStr = order.orderTime || '';
+
   const csvFilename = `${orderNo}_Order_Export.csv`;
   const escapeCsv = (str) => {
     if (str === null || str === undefined) return '';
@@ -128,6 +157,12 @@ export async function generateBusyOrderExcel(order) {
   };
 
   const csvLines = [
+    `"Order No",${escapeCsv(orderNo)}`,
+    `"Date",${escapeCsv(`${dateStr} ${timeStr}`.trim())}`,
+    `"Customer Name",${escapeCsv(customerName)}`,
+    `"Created By",${escapeCsv(createdBy)}`,
+    `"Checked By",${escapeCsv(checkedBy)}`,
+    '',
     easyHeaders.map(escapeCsv).join(','),
     ...easyRows.map(row => row.map(escapeCsv).join(','))
   ];

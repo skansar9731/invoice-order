@@ -100,13 +100,13 @@ class MockPDFDoc {
       getNumberOfPages: () => 1
     };
   }
-  setFont() {}
-  setFontSize() {}
-  setTextColor() {}
-  setDrawColor() {}
-  setLineWidth() {}
-  line() {}
-  text() {}
+  setFont() { }
+  setFontSize() { }
+  setTextColor() { }
+  setDrawColor() { }
+  setLineWidth() { }
+  line() { }
+  text() { }
   autoTable(config) { drawnPDFTable = config; }
   save(fn) { savedPDFFilename = fn; }
 }

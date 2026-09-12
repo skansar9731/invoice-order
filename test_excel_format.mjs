@@ -146,17 +146,17 @@ globalThis.Blob = class {
 };
 globalThis.URL = {
   createObjectURL: () => 'blob:mock',
-  revokeObjectURL: () => {}
+  revokeObjectURL: () => { }
 };
 globalThis.document = {
   body: {
-    appendChild: () => {},
-    removeChild: () => {}
+    appendChild: () => { },
+    removeChild: () => { }
   },
   createElement: (tag) => ({
-    set href(v) {},
+    set href(v) { },
     set download(v) { downloadedName = v; },
-    click: () => {}
+    click: () => { }
   })
 };
 

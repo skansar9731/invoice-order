@@ -13,7 +13,8 @@ import {
   updateOrderMeta,
   setOrderItems,
   addOrderItem,
-  subscribeOrder
+  subscribeOrder,
+  loadOrderFromStorage
 } from './orderManager.js';
 import {
   renderOrderTable,
@@ -46,12 +47,25 @@ if (typeof document !== 'undefined') {
       initSettingsEvents();
       initPWA();
 
+      // Restore active order from storage if present
+      const savedOrder = loadOrderFromStorage();
+      if (savedOrder) {
+        const customerNameInput = document.getElementById('order-customer-name');
+        const createdByInput = document.getElementById('order-created-by');
+        const checkedByInput = document.getElementById('order-checked-by');
+        const orderNumberInput = document.getElementById('order-number-display');
+        if (customerNameInput && savedOrder.customerName) customerNameInput.value = savedOrder.customerName;
+        if (createdByInput && savedOrder.createdBy) createdByInput.value = savedOrder.createdBy;
+        if (checkedByInput && savedOrder.checkedBy) checkedByInput.value = savedOrder.checkedBy;
+        if (orderNumberInput && savedOrder.orderNo) orderNumberInput.textContent = savedOrder.orderNo;
+      }
+
       // 3. Subscribe to Order state updates
       subscribeOrder((order) => {
         renderOrderTable();
       });
 
-      // 4. Initial empty table render
+      // 4. Initial order table render
       renderOrderTable();
 
       console.log('Maharashtra Automobile PWA initialized successfully.');
@@ -185,12 +199,28 @@ function initOrderEntryEvents() {
   const btnClearAllImages = document.getElementById('btn-clear-all-images');
   const btnNewOrder = document.getElementById('btn-new-order');
   const customerNameInput = document.getElementById('order-customer-name');
+  const createdByInput = document.getElementById('order-created-by');
+  const checkedByInput = document.getElementById('order-checked-by');
   const btnAddManualItem = document.getElementById('btn-add-manual-item');
 
   // Customer Name Binding
   if (customerNameInput) {
     customerNameInput.addEventListener('input', (e) => {
       updateOrderMeta({ customerName: e.target.value });
+    });
+  }
+
+  // Created By Binding
+  if (createdByInput) {
+    createdByInput.addEventListener('input', (e) => {
+      updateOrderMeta({ createdBy: e.target.value });
+    });
+  }
+
+  // Checked By Binding
+  if (checkedByInput) {
+    checkedByInput.addEventListener('input', (e) => {
+      updateOrderMeta({ checkedBy: e.target.value });
     });
   }
 
@@ -593,12 +623,16 @@ export function clearAllImages(showNotification = true) {
 
   const fileInput = document.getElementById('order-image-input');
   const customerNameInput = document.getElementById('order-customer-name');
+  const createdByInput = document.getElementById('order-created-by');
+  const checkedByInput = document.getElementById('order-checked-by');
   const orderNumberInput = document.getElementById('order-number-display');
 
   if (fileInput) fileInput.value = '';
 
   const fresh = resetOrder();
   if (customerNameInput) customerNameInput.value = '';
+  if (createdByInput) createdByInput.value = '';
+  if (checkedByInput) checkedByInput.value = '';
   if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
 
   renderImageGallery();

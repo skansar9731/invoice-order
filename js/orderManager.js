@@ -8,6 +8,8 @@ import { matchCustomerItem } from './matchingEngine.js';
 let currentOrder = {
   id: generateOrderId(),
   customerName: '',
+  createdBy: '',
+  checkedBy: '',
   orderNo: generateOrderNumber(),
   orderDate: new Date().toISOString().split('T')[0],
   orderTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -15,6 +17,48 @@ let currentOrder = {
   items: [],
   notes: ''
 };
+
+const ORDER_STORAGE_KEY = 'active_customer_order';
+
+export function saveOrderToStorage(order = currentOrder) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order));
+    }
+  } catch (e) {
+    console.warn('Failed to save order to localStorage:', e);
+  }
+}
+
+export function loadOrderFromStorage() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(ORDER_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          currentOrder = {
+            id: parsed.id || generateOrderId(),
+            customerName: String(parsed.customerName || '').trim(),
+            createdBy: String(parsed.createdBy || '').trim(),
+            checkedBy: String(parsed.checkedBy || '').trim(),
+            orderNo: parsed.orderNo || generateOrderNumber(),
+            orderDate: parsed.orderDate || new Date().toISOString().split('T')[0],
+            orderTime: parsed.orderTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            imagePreviewUrl: parsed.imagePreviewUrl || null,
+            items: Array.isArray(parsed.items) ? parsed.items : [],
+            notes: parsed.notes || ''
+          };
+          notifyListeners();
+          return currentOrder;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load order from localStorage:', e);
+  }
+  return null;
+}
 
 const orderListeners = [];
 
@@ -27,6 +71,7 @@ export function subscribeOrder(listener) {
 }
 
 function notifyListeners() {
+  saveOrderToStorage(currentOrder);
   orderListeners.forEach(fn => fn(getCurrentOrder()));
 }
 
@@ -47,10 +92,38 @@ export function getCurrentOrder() {
   return { ...currentOrder };
 }
 
-export function resetOrder(customerName = '') {
+export function loadOrder(orderData) {
+  if (!orderData) return currentOrder;
+  currentOrder = {
+    id: orderData.id || generateOrderId(),
+    customerName: String(orderData.customerName || '').trim(),
+    createdBy: String(orderData.createdBy || '').trim(),
+    checkedBy: String(orderData.checkedBy || '').trim(),
+    orderNo: orderData.orderNo || generateOrderNumber(),
+    orderDate: orderData.orderDate || new Date().toISOString().split('T')[0],
+    orderTime: orderData.orderTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    imagePreviewUrl: orderData.imagePreviewUrl || null,
+    items: Array.isArray(orderData.items) ? orderData.items : [],
+    notes: orderData.notes || ''
+  };
+  notifyListeners();
+  return currentOrder;
+}
+
+export function resetOrder(customerName = '', createdBy = '', checkedBy = '') {
+  let cust = customerName;
+  let cr = createdBy;
+  let ch = checkedBy;
+  if (typeof customerName === 'object' && customerName !== null) {
+    cust = customerName.customerName || '';
+    cr = customerName.createdBy || '';
+    ch = customerName.checkedBy || '';
+  }
   currentOrder = {
     id: generateOrderId(),
-    customerName: customerName.trim(),
+    customerName: String(cust || '').trim(),
+    createdBy: String(cr || '').trim(),
+    checkedBy: String(ch || '').trim(),
     orderNo: generateOrderNumber(),
     orderDate: new Date().toISOString().split('T')[0],
     orderTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),

@@ -44,10 +44,14 @@ export async function generateBusyOrderPDF(order) {
 
   const orderNo = order.orderNo || 'ORDER';
   const customer = order.customerName || 'Counter Cash Customer';
+  const createdBy = order.createdBy || '';
+  const checkedBy = order.checkedBy || '';
   const dateStr = order.orderDate || new Date().toISOString().split('T')[0];
   const timeStr = order.orderTime || '';
-  const metaLine = `Customer Order Sheet  |  Order No: ${orderNo}  |  Customer: ${customer}  |  Date: ${dateStr} ${timeStr}`;
-  doc.text(metaLine, margin, 17);
+  const metaLine1 = `Customer Order Sheet  |  Order No: ${orderNo}  |  Date: ${dateStr} ${timeStr}`.trim();
+  const metaLine2 = `Customer: ${customer}  |  Created By: ${createdBy || '—'}  |  Checked By: ${checkedBy || '—'}`;
+  doc.text(metaLine1, margin, 16.5);
+  doc.text(metaLine2, margin, 21);
 
   let totalQty = 0;
 
@@ -86,7 +90,7 @@ export async function generateBusyOrderPDF(order) {
 
   // Render Table via jspdf-autotable matching exact Busy black-border grid
   doc.autoTable({
-    startY: 20,
+    startY: 25,
     margin: { left: margin, right: margin, bottom: 16 },
     head: [['Item Details', 'Qty.', 'Unit', 'MRP', 'Rack']],
     body: tableRows,
@@ -130,7 +134,7 @@ export async function generateBusyOrderPDF(order) {
       // Top header line border
       doc.setDrawColor(0, 0, 0);
       doc.setLineWidth(0.35);
-      doc.line(margin, 20, pageWidth - margin, 20);
+      doc.line(margin, 25, pageWidth - margin, 25);
 
       // Bottom page number footer
       doc.setFontSize(8);
