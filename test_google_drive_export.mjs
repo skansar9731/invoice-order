@@ -218,6 +218,19 @@ globalThis.fetch = async (url, options = {}) => {
   fetchCalls.push({ url, options });
   const method = options.method || 'GET';
 
+  // 0. About endpoint for identifying authenticated user
+  if (url.includes('/drive/v3/about')) {
+    return {
+      ok: true,
+      json: async () => ({
+        user: {
+          emailAddress: globalThis._mockCurrentEmail || 'maharashtraautomobile313@gmail.com',
+          displayName: 'Test User'
+        }
+      })
+    };
+  }
+
   // 1. Verify root folder access
   if (url.includes(`/files/${GOOGLE_DRIVE_ROOT_FOLDER_ID}?`)) {
     return {
@@ -282,8 +295,51 @@ globalThis.fetch = async (url, options = {}) => {
   return { ok: false, status: 404, text: async () => 'Not found' };
 };
 
+// Mock localStorage
+const mockStorage = new Map();
+globalThis.localStorage = {
+  getItem: (k) => mockStorage.get(k) || null,
+  setItem: (k, v) => mockStorage.set(k, String(v)),
+  removeItem: (k) => mockStorage.delete(k),
+  clear: () => mockStorage.clear()
+};
+
+// Mock Google Picker
+if (!globalThis.window.google) globalThis.window.google = {};
+globalThis.window.google.picker = {
+  ViewId: { FOLDERS: 'folders' },
+  Action: { PICKED: 'picked', CANCEL: 'cancel' },
+  DocsView: class {
+    setIncludeFolders() { return this; }
+    setSelectFolderEnabled() { return this; }
+    setEnableDrives() { return this; }
+    setOwnedByMe() { return this; }
+    setMimeTypes() { return this; }
+  },
+  PickerBuilder: class {
+    addView() { return this; }
+    setOAuthToken() { return this; }
+    setAppId() { return this; }
+    setTitle() { return this; }
+    setCallback(cb) { this._cb = cb; return this; }
+    build() {
+      return {
+        setVisible: () => {
+          if (this._cb) {
+            this._cb({
+              action: globalThis._mockPickerAction || 'picked',
+              docs: [globalThis._mockPickerDoc || { id: GOOGLE_DRIVE_ROOT_FOLDER_ID, name: GOOGLE_DRIVE_ROOT_FOLDER_NAME }]
+            });
+          }
+        }
+      };
+    }
+  }
+};
+
 // Mock Google auth
 globalThis.window.google = {
+  ...globalThis.window.google,
   accounts: {
     oauth2: {
       initTokenClient: (cfg) => {
@@ -386,6 +442,54 @@ closeDriveExportSuccessModal();
 if (!mockModalElements['drive-export-success-modal'].classList.contains('hidden')) {
   throw new Error('Modal must be hidden after calling closeDriveExportSuccessModal.');
 }
-console.log('✓ PASSED: Modal successfully dismissed on Close action.');
+console.log('✓ PASSED: Modal successfully dismissed on Close action.\n');
 
-console.log('\n=== ALL GOOGLE DRIVE INTEGRATION & EXPORT UX TESTS PASSED 100%! ===');
+// -------------------------------------------------------------
+// TEST 7: Multi-User Account Folder Targeting & Picker Flow
+// -------------------------------------------------------------
+console.log('--- TEST 7: Multi-User Account Folder Targeting & Validation ---');
+import { resolveDriveRootFolder, getOrCreateMonthFolder, resetGoogleDriveAuth } from './js/googleDriveService.js';
+
+// 7a. Second user (mycollectionr@gmail.com) logs in for first time
+resetGoogleDriveAuth();
+globalThis._mockCurrentEmail = 'mycollectionr@gmail.com';
+
+// If user selects wrong folder
+globalThis._mockPickerDoc = { id: 'wrong-folder-id-777', name: 'MY OTHER FOLDER' };
+let wrongFolderError = null;
+try {
+  await resolveDriveRootFolder();
+} catch (e) {
+  wrongFolderError = e.message;
+}
+
+if (wrongFolderError !== 'Please select the existing MH SALES ORDER folder.') {
+  throw new Error(`Expected error "Please select the existing MH SALES ORDER folder.", got: "${wrongFolderError}"`);
+}
+console.log('✓ PASSED: Rejecting wrong folder selection with exact message: "Please select the existing MH SALES ORDER folder."');
+
+// 7b. User selects correct canonical MH SALES ORDER folder
+globalThis._mockPickerDoc = { id: GOOGLE_DRIVE_ROOT_FOLDER_ID, name: GOOGLE_DRIVE_ROOT_FOLDER_NAME };
+const resolvedId = await resolveDriveRootFolder();
+if (resolvedId !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+  throw new Error(`Expected canonical root folder ID ${GOOGLE_DRIVE_ROOT_FOLDER_ID}, got: ${resolvedId}`);
+}
+const storedSecondUserKey = 'googleDriveRootFolderId_mycollectionr@gmail.com';
+if (globalThis.localStorage.getItem(storedSecondUserKey) !== GOOGLE_DRIVE_ROOT_FOLDER_ID) {
+  throw new Error('Authorized folder ID must be saved per-account in localStorage.');
+}
+console.log('✓ PASSED: Canonical MH SALES ORDER authorized and stored specifically for mycollectionr@gmail.com.');
+
+// 7c. Second user exports into month folder -> Uses SAME existing September 2026 folder
+fetchCalls = [];
+const secondUserMonthFolderId = await getOrCreateMonthFolder('SEPTEMBER 2026');
+if (secondUserMonthFolderId !== 'mock-september-folder-id') {
+  throw new Error(`Expected existing month folder mock-september-folder-id, got: ${secondUserMonthFolderId}`);
+}
+const queryCall = fetchCalls.find(c => c.url.includes('SEPTEMBER%202026') && c.url.includes('supportsAllDrives=true'));
+if (!queryCall) {
+  throw new Error('Expected supportsAllDrives=true in month folder search query to discover shared month folder.');
+}
+console.log('✓ PASSED: Second user reused the EXACT same SEPTEMBER 2026 folder without creating a duplicate!');
+
+console.log('\n=== ALL GOOGLE DRIVE INTEGRATION & MULTI-USER TESTS PASSED 100%! ===');

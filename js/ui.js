@@ -839,12 +839,12 @@ export async function handleGeneratePDFClick() {
   } catch (err) {
     console.error('Drive upload error:', err);
 
-    let errorMsg = 'Google Drive upload failed. Please try again.';
-    if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('permission')) {
-      errorMsg = 'Google Drive upload failed: Permission error. Please authorize "MH SALES ORDER" folder.';
+    let errorMsg = err?.message || 'Google Drive upload failed. Please try again.';
+    if (errorMsg.includes('403') || errorMsg.toLowerCase().includes('permission')) {
+      errorMsg = 'Google Drive access to the MH SALES ORDER folder is required. Please authorize/select the existing folder.';
     }
 
-    showToast(errorMsg, 'error', 5000);
+    showToast(errorMsg, 'error', 5500);
     // Do NOT download automatically
     // Do NOT show the success dialog
     // Generated Blob remains in memory (lastExportResult) so user can retry
@@ -910,12 +910,12 @@ export async function handleGenerateExcelClick() {
   } catch (err) {
     console.error('Drive upload error:', err);
 
-    let errorMsg = 'Google Drive upload failed. Please try again.';
-    if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('permission')) {
-      errorMsg = 'Google Drive upload failed: Permission error. Please authorize "MH SALES ORDER" folder.';
+    let errorMsg = err?.message || 'Google Drive upload failed. Please try again.';
+    if (errorMsg.includes('403') || errorMsg.toLowerCase().includes('permission')) {
+      errorMsg = 'Google Drive access to the MH SALES ORDER folder is required. Please authorize/select the existing folder.';
     }
 
-    showToast(errorMsg, 'error', 5000);
+    showToast(errorMsg, 'error', 5500);
     // Do NOT download automatically
     // Do NOT show the success dialog
     // Generated Blob remains in memory (lastExportResult) so user can retry
