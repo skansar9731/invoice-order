@@ -200,6 +200,7 @@ export function getCurrentAuthorizedEmail() {
 /**
  * Show Google Picker for the user to select the existing "MH SALES ORDER" root folder.
  * Grants drive.file scope access to the selected folder and stores the ID locally per account.
+ * Displays "Shared with me" and "My Drive" without Google Workspace Shared Drives.
  */
 export async function selectDriveRootFolder() {
   const token = await authorizeGoogleDrive(true);
@@ -219,26 +220,26 @@ export async function selectDriveRootFolder() {
 
   return new Promise((resolve, reject) => {
     try {
-      // 1. My Drive Folders view
-      const docsView = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
+      // 1. Shared With Me Folders view (where second authorized account sees the shared "MH SALES ORDER")
+      const sharedWithMeView = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(true)
-        .setEnableDrives(true)
-        .setMimeTypes('application/vnd.google-apps.folder');
-
-      // 2. Shared With Me Folders view (Critical for second authorized account to select the shared root folder)
-      const sharedView = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
-        .setIncludeFolders(true)
-        .setSelectFolderEnabled(true)
-        .setEnableDrives(true)
         .setOwnedByMe(false)
-        .setMimeTypes('application/vnd.google-apps.folder');
+        .setMimeTypes('application/vnd.google-apps.folder')
+        .setLabel('Shared with me');
+
+      // 2. My Drive Folders view (where primary owner sees "MH SALES ORDER")
+      const myDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.FOLDERS)
+        .setIncludeFolders(true)
+        .setSelectFolderEnabled(true)
+        .setMimeTypes('application/vnd.google-apps.folder')
+        .setLabel('My Drive');
 
       const appId = GOOGLE_OAUTH_CLIENT_ID.split('-')[0];
 
       const pickerBuilder = new window.google.picker.PickerBuilder()
-        .addView(docsView)
-        .addView(sharedView)
+        .addView(sharedWithMeView)
+        .addView(myDriveView)
         .setOAuthToken(token)
         .setAppId(appId)
         .setTitle(`Select the "${GOOGLE_DRIVE_ROOT_FOLDER_NAME}" Folder`)
@@ -292,7 +293,7 @@ export async function selectDriveRootFolder() {
  */
 async function verifyFolderAccess(folderId, token) {
   try {
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?supportsAllDrives=true&fields=id,name,trashed,mimeType`, {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,trashed,mimeType`, {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -409,9 +410,9 @@ export async function getOrCreateMonthFolder(monthFolderName) {
     throw new Error('Google Drive access to the MH SALES ORDER folder is required. Please authorize/select the existing folder.');
   }
 
-  // 1. Search for existing month folder under root with supportsAllDrives=true & includeItemsFromAllDrives=true
+  // 1. Search for existing month folder under root in My Drive space
   const query = `mimeType = 'application/vnd.google-apps.folder' and '${GOOGLE_DRIVE_ROOT_FOLDER_ID}' in parents and name = '${monthFolderName.replace(/'/g, "\\'")}' and trashed = false`;
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType,parents)&spaces=drive`;
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,parents)&spaces=drive`;
 
   const searchRes = await fetch(searchUrl, {
     headers: { Authorization: `Bearer ${token}` }
@@ -428,7 +429,7 @@ export async function getOrCreateMonthFolder(monthFolderName) {
   }
 
   // 2. Create month folder inside canonical root ONLY if not found
-  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&fields=id,name', {
+  const createRes = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -469,7 +470,7 @@ export async function uploadOrUpdateDriveFile({ filename, mimeType, blob, orderD
 
   // 1. Check if a file with the exact same name already exists in the month folder
   const query = `'${monthFolderId}' in parents and name = '${filename.replace(/'/g, "\\'")}' and trashed = false`;
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,webViewLink)&spaces=drive`;
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,webViewLink)&spaces=drive`;
 
   const searchRes = await fetch(searchUrl, {
     headers: { Authorization: `Bearer ${token}` }
@@ -487,7 +488,7 @@ export async function uploadOrUpdateDriveFile({ filename, mimeType, blob, orderD
 
   if (existingFile) {
     // 2. UPDATE existing file in-place (No duplicate created)
-    const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media&supportsAllDrives=true&fields=id,name,webViewLink`;
+    const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media&fields=id,name,webViewLink`;
     const updateRes = await fetch(updateUrl, {
       method: 'PATCH',
       headers: {
@@ -525,7 +526,7 @@ export async function uploadOrUpdateDriveFile({ filename, mimeType, blob, orderD
       type: `multipart/related; boundary=${boundary}`
     });
 
-    const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,webViewLink';
+    const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink';
     const uploadRes = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
@@ -552,6 +553,7 @@ export async function uploadOrUpdateDriveFile({ filename, mimeType, blob, orderD
     isUpdate: Boolean(existingFile)
   };
 }
+
 
 /**
  * Open the uploaded Drive file in the pre-opened blank window or fallback gracefully

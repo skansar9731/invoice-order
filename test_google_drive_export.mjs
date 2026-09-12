@@ -315,6 +315,7 @@ globalThis.window.google.picker = {
     setEnableDrives() { return this; }
     setOwnedByMe() { return this; }
     setMimeTypes() { return this; }
+    setLabel() { return this; }
   },
   PickerBuilder: class {
     addView() { return this; }
@@ -486,10 +487,10 @@ const secondUserMonthFolderId = await getOrCreateMonthFolder('SEPTEMBER 2026');
 if (secondUserMonthFolderId !== 'mock-september-folder-id') {
   throw new Error(`Expected existing month folder mock-september-folder-id, got: ${secondUserMonthFolderId}`);
 }
-const queryCall = fetchCalls.find(c => c.url.includes('SEPTEMBER%202026') && c.url.includes('supportsAllDrives=true'));
+const queryCall = fetchCalls.find(c => c.url.includes('SEPTEMBER%202026') && c.url.includes('spaces=drive'));
 if (!queryCall) {
-  throw new Error('Expected supportsAllDrives=true in month folder search query to discover shared month folder.');
+  throw new Error('Expected spaces=drive in month folder search query to discover folder in My Drive space.');
 }
-console.log('✓ PASSED: Second user reused the EXACT same SEPTEMBER 2026 folder without creating a duplicate!');
+console.log('✓ PASSED: Second user queried My Drive space and reused the EXACT same SEPTEMBER 2026 folder without creating a duplicate!');
 
 console.log('\n=== ALL GOOGLE DRIVE INTEGRATION & MULTI-USER TESTS PASSED 100%! ===');
