@@ -22,10 +22,12 @@ import {
   showToast,
   refreshDashboardStats,
   handleGeneratePDFClick,
-  formatItemDetails
+  formatItemDetails,
+  updateExportButtonState
 } from './ui.js';
 import { exportStockMasterExcel } from './excelGenerator.js';
 import { searchLocalProducts, debounce, invalidateSearchCache } from './productSearch.js';
+import { initializeGoogleDrive } from './googleDriveService.js';
 
 let pendingImportData = null;
 
@@ -65,8 +67,12 @@ if (typeof document !== 'undefined') {
         renderOrderTable();
       });
 
-      // 4. Initial order table render
+      // 4. Initial order table render and export buttons state
       renderOrderTable();
+      updateExportButtonState();
+
+      // 5. Pre-initialize Google Drive service in background
+      initializeGoogleDrive().catch(e => console.warn('Google Drive preload warning:', e));
 
       console.log('Maharashtra Automobile PWA initialized successfully.');
     } catch (err) {

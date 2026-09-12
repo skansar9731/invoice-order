@@ -13,8 +13,9 @@ import {
   getOrderSummary,
   addOrderItem
 } from './orderManager.js';
-import { generateBusyOrderPDF } from './pdfGenerator.js';
-import { generateBusyOrderExcel } from './excelGenerator.js';
+import { generateBusyOrderPDF, generateBusyOrderPDFBlob } from './pdfGenerator.js';
+import { generateBusyOrderExcel, generateBusyOrderExcelBlob } from './excelGenerator.js';
+import { uploadOrUpdateDriveFile, openDriveFile } from './googleDriveService.js';
 import { getShopStats } from './db.js';
 
 let activeManualSelectItemId = null;
@@ -94,6 +95,9 @@ export function renderOrderTable() {
 
   const order = getCurrentOrder();
   const summary = getOrderSummary();
+
+  // Update PDF / Excel export button states
+  updateExportButtonState();
 
   // Update summary bar badges
   if (orderSummaryBar) {
@@ -636,8 +640,51 @@ export function initUIEventListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeManualSelectModal();
+      closeDriveExportSuccessModal();
     }
   });
+
+  // Success Modal Event Listeners
+  const btnDriveOpen = document.getElementById('btn-drive-open');
+  if (btnDriveOpen) {
+    btnDriveOpen.addEventListener('click', () => {
+      if (lastExportResult && lastExportResult.webViewLink) {
+        const opened = window.open(lastExportResult.webViewLink, '_blank');
+        if (!opened) {
+          window.location.href = lastExportResult.webViewLink;
+        }
+      }
+    });
+  }
+
+  const btnDriveSavePc = document.getElementById('btn-drive-save-pc');
+  if (btnDriveSavePc) {
+    btnDriveSavePc.addEventListener('click', () => {
+      if (lastExportResult && lastExportResult.blob) {
+        downloadBlobFallback(lastExportResult.blob, lastExportResult.filename);
+        showToast(`Saved "${lastExportResult.filename}" to this PC`, 'success', 3000);
+      }
+    });
+  }
+
+  const btnDriveClose = document.getElementById('btn-drive-close');
+  if (btnDriveClose) {
+    btnDriveClose.addEventListener('click', closeDriveExportSuccessModal);
+  }
+
+  const btnDriveCloseX = document.getElementById('btn-drive-modal-close-x');
+  if (btnDriveCloseX) {
+    btnDriveCloseX.addEventListener('click', closeDriveExportSuccessModal);
+  }
+
+  const driveSuccessModal = document.getElementById('drive-export-success-modal');
+  if (driveSuccessModal) {
+    driveSuccessModal.addEventListener('click', (e) => {
+      if (e.target === driveSuccessModal) {
+        closeDriveExportSuccessModal();
+      }
+    });
+  }
 
   // Generate PDF Button
   const btnGeneratePDF = document.getElementById('btn-generate-pdf');
@@ -654,14 +701,91 @@ export function initUIEventListeners() {
       handleGenerateExcelClick();
     });
   }
+
+  // Initial export buttons state check
+  updateExportButtonState();
 }
 
 /**
- * Handle PDF generation with safety validation
+ * Update PDF and Excel export button states according to order items count
+ * Disabled when order.items.length === 0, enabled when order.items.length >= 1
+ */
+export function updateExportButtonState() {
+  const order = getCurrentOrder();
+  const hasItems = order && Array.isArray(order.items) && order.items.length > 0;
+
+  const btnPdf = document.getElementById('btn-generate-pdf');
+  const btnExcel = document.getElementById('btn-generate-excel');
+
+  [btnPdf, btnExcel].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = !hasItems;
+    if (!hasItems) {
+      btn.classList.add('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+      btn.classList.remove('active:scale-95', 'hover:shadow-lg');
+      btn.setAttribute('aria-disabled', 'true');
+    } else {
+      btn.classList.remove('opacity-40', 'cursor-not-allowed', 'pointer-events-none');
+      btn.classList.add('active:scale-95');
+      btn.removeAttribute('aria-disabled');
+    }
+  });
+}
+
+// In-memory reference to the last exported file and blob
+let lastExportResult = null;
+
+export function getLastExportResult() {
+  return lastExportResult;
+}
+
+export function showDriveExportSuccessModal(result) {
+  lastExportResult = result;
+
+  const modal = document.getElementById('drive-export-success-modal');
+  const filenameEl = document.getElementById('drive-success-filename');
+  const folderEl = document.getElementById('drive-success-folder');
+  const iconEl = document.getElementById('drive-success-icon');
+  const updateBadge = document.getElementById('drive-success-update-badge');
+
+  if (filenameEl) filenameEl.textContent = result.filename;
+  if (folderEl) folderEl.textContent = result.monthFolderName || 'SEPTEMBER 2026';
+  if (iconEl) iconEl.textContent = result.type === 'excel' ? '📊' : '📄';
+  if (updateBadge) {
+    if (result.isUpdate) updateBadge.classList.remove('hidden');
+    else updateBadge.classList.add('hidden');
+  }
+
+  if (modal) {
+    modal.classList.remove('hidden');
+  }
+}
+
+export function closeDriveExportSuccessModal() {
+  const modal = document.getElementById('drive-export-success-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+function downloadBlobFallback(blob, filename) {
+  if (typeof window === 'undefined' || !blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Handle PDF generation and Google Drive upload with deduplication and success modal
  */
 export async function handleGeneratePDFClick() {
   const order = getCurrentOrder();
-  if (order.items.length === 0) {
+  if (!order || !order.items || order.items.length === 0) {
     showToast('Cannot generate PDF: The order has no items.', 'warning');
     return;
   }
@@ -671,26 +795,68 @@ export async function handleGeneratePDFClick() {
     const proceed = confirm(
       `⚠ WARNING: There are ${summary.unmatched} unmatched item(s) in this order.\n\n` +
       `These items will be marked as [ UNMATCHED ] on the Busy entry sheet.\n\n` +
-      `Do you still want to generate the PDF now?`
+      `Do you still want to generate and upload the PDF now?`
     );
     if (!proceed) return;
   }
 
+  showToast('Generating PDF entry sheet...', 'info', 2000);
+
+  let generated = null;
   try {
-    const filename = await generateBusyOrderPDF(order);
-    showToast(`PDF Generated successfully: ${filename}`, 'success');
+    generated = await generateBusyOrderPDFBlob(order);
+    // Keep generated blob in memory so user can retry or save
+    lastExportResult = {
+      blob: generated.blob,
+      filename: generated.filename,
+      type: 'pdf'
+    };
   } catch (err) {
     console.error('PDF Generation error:', err);
-    showToast(`Failed to generate PDF: ${err.message}`, 'error');
+    showToast(`Failed to generate PDF: ${err.message}`, 'error', 4500);
+    return;
+  }
+
+  showToast('Uploading to Google Drive (MH SALES ORDER)...', 'info', 3000);
+
+  try {
+    const uploadResult = await uploadOrUpdateDriveFile({
+      filename: generated.filename,
+      mimeType: 'application/pdf',
+      blob: generated.blob,
+      orderDate: order.orderDate
+    });
+
+    // Successfully uploaded to Drive: show success modal
+    showDriveExportSuccessModal({
+      blob: generated.blob,
+      filename: generated.filename,
+      webViewLink: uploadResult.webViewLink,
+      monthFolderName: uploadResult.monthFolderName,
+      isUpdate: uploadResult.isUpdate,
+      type: 'pdf'
+    });
+  } catch (err) {
+    console.error('Drive upload error:', err);
+
+    let errorMsg = 'Google Drive upload failed. Please try again.';
+    if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('permission')) {
+      errorMsg = 'Google Drive upload failed: Permission error. Please authorize "MH SALES ORDER" folder.';
+    }
+
+    showToast(errorMsg, 'error', 5000);
+    // Do NOT download automatically
+    // Do NOT show the success dialog
+    // Generated Blob remains in memory (lastExportResult) so user can retry
   }
 }
 
 /**
- * Handle Excel generation with safety validation
+ * Handle Excel generation and Google Drive upload with deduplication and success modal
  */
 export async function handleGenerateExcelClick() {
   const order = getCurrentOrder();
-  if (order.items.length === 0) {
+  if (!order || !order.items || order.items.length === 0) {
     showToast('Cannot export Excel: The order has no items.', 'warning');
     return;
   }
@@ -700,17 +866,59 @@ export async function handleGenerateExcelClick() {
     const proceed = confirm(
       `⚠ WARNING: There are ${summary.unmatched} unmatched item(s) in this order.\n\n` +
       `These items will be marked as [ UNMATCHED ] on the Busy entry spreadsheet.\n\n` +
-      `Do you still want to export the Excel file now?`
+      `Do you still want to export and upload the Excel file now?`
     );
     if (!proceed) return;
   }
 
+  showToast('Generating Excel entry sheet...', 'info', 2000);
+
+  let generated = null;
   try {
-    const filename = await generateBusyOrderExcel(order);
-    showToast(`Excel File exported successfully: ${filename}`, 'success');
+    generated = await generateBusyOrderExcelBlob(order);
+    // Keep generated blob in memory so user can retry or save
+    lastExportResult = {
+      blob: generated.blob,
+      filename: generated.filename,
+      type: 'excel'
+    };
   } catch (err) {
     console.error('Excel Generation error:', err);
-    showToast(`Failed to export Excel: ${err.message}`, 'error');
+    showToast(`Failed to generate Excel: ${err.message}`, 'error', 4500);
+    return;
+  }
+
+  showToast('Uploading to Google Drive (MH SALES ORDER)...', 'info', 3000);
+
+  try {
+    const uploadResult = await uploadOrUpdateDriveFile({
+      filename: generated.filename,
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      blob: generated.blob,
+      orderDate: order.orderDate
+    });
+
+    // Successfully uploaded to Drive: show success modal
+    showDriveExportSuccessModal({
+      blob: generated.blob,
+      filename: generated.filename,
+      webViewLink: uploadResult.webViewLink,
+      monthFolderName: uploadResult.monthFolderName,
+      isUpdate: uploadResult.isUpdate,
+      type: 'excel'
+    });
+  } catch (err) {
+    console.error('Drive upload error:', err);
+
+    let errorMsg = 'Google Drive upload failed. Please try again.';
+    if (err?.message?.includes('403') || err?.message?.toLowerCase().includes('permission')) {
+      errorMsg = 'Google Drive upload failed: Permission error. Please authorize "MH SALES ORDER" folder.';
+    }
+
+    showToast(errorMsg, 'error', 5000);
+    // Do NOT download automatically
+    // Do NOT show the success dialog
+    // Generated Blob remains in memory (lastExportResult) so user can retry
   }
 }
 

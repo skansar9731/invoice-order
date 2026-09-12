@@ -6,7 +6,12 @@
 
 import { prepareBusyExportRows } from './exportDataService.js';
 
-export async function generateBusyOrderPDF(order) {
+/**
+ * Builds the jsPDF instance and document for the Busy Entry Sheet
+ * @param {Object} order - Customer order object
+ * @returns {Promise<{ doc: Object, filename: string }>}
+ */
+export async function buildBusyOrderPDFDoc(order) {
   if (!window.jspdf || !window.jspdf.jsPDF) {
     throw new Error('jsPDF library is not loaded. Please verify internet connection or scripts.');
   }
@@ -146,8 +151,28 @@ export async function generateBusyOrderPDF(order) {
     }
   });
 
-  // Save / Return filename
   const filename = `${order.orderNo || 'Order'}_Busy_Entry_Sheet.pdf`;
+  return { doc, filename };
+}
+
+/**
+ * Generate Busy Entry Sheet PDF as a Blob without downloading
+ * @param {Object} order - Customer order object
+ * @returns {Promise<{ blob: Blob, filename: string }>}
+ */
+export async function generateBusyOrderPDFBlob(order) {
+  const { doc, filename } = await buildBusyOrderPDFDoc(order);
+  const blob = doc.output('blob');
+  return { blob, filename };
+}
+
+/**
+ * Generate Busy Entry Sheet PDF and download directly (backward-compatible)
+ * @param {Object} order - Customer order object
+ * @returns {Promise<string>} Downloaded filename
+ */
+export async function generateBusyOrderPDF(order) {
+  const { doc, filename } = await buildBusyOrderPDFDoc(order);
   doc.save(filename);
   return filename;
 }

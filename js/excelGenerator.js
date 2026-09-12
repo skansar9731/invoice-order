@@ -17,12 +17,21 @@ function formatStockQty(qty) {
   return num.toFixed(3);
 }
 
+const escapeCsv = (str) => {
+  if (str === null || str === undefined) return '';
+  const s = String(str);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+};
+
 /**
- * Generate Busy & Easy Accounting Excel for Customer Orders
- * Sheet 1: Busy Entry Sheet (10 columns)
- * Sheet 2: Easy Software Format (5 columns matching attached Excel format: Item Details, Qty., Unit, MRP, Rack)
+ * Builds the SheetJS workbook for customer order exports
+ * @param {Object} order - Customer order
+ * @returns {Promise<{ wb: Object, filename: string, exportRows: Array, easyHeaders: Array, easyRows: Array, orderNo: string }>}
  */
-export async function generateBusyOrderExcel(order) {
+export async function buildBusyOrderWorkbook(order) {
   if (!order || !order.items || order.items.length === 0) {
     throw new Error('Cannot export Excel: The order has no items.');
   }
@@ -79,10 +88,10 @@ export async function generateBusyOrderExcel(order) {
     row.rackNo || ''
   ]);
 
-  // Check if SheetJS (XLSX) is available in window
+  let wb = null;
   if (typeof window !== 'undefined' && window.XLSX) {
     const XLSX = window.XLSX;
-    const wb = XLSX.utils.book_new();
+    wb = XLSX.utils.book_new();
 
     // Sheet 1: Busy Entry Sheet (10 columns - Product Table unchanged)
     const wsBusy = XLSX.utils.aoa_to_sheet([busyHeaders, ...busyRows]);
@@ -133,7 +142,61 @@ export async function generateBusyOrderExcel(order) {
       { wch: 40 }
     ];
     XLSX.utils.book_append_sheet(wb, wsOrderDetails, 'Order Details');
+  }
 
+  return { wb, filename, exportRows, easyHeaders, easyRows, orderNo };
+}
+
+/**
+ * Generate Busy & Easy Accounting Excel as a Blob without downloading
+ * @param {Object} order - Customer order
+ * @returns {Promise<{ blob: Blob, filename: string }>}
+ */
+export async function generateBusyOrderExcelBlob(order) {
+  const { wb, filename, easyHeaders, easyRows, orderNo } = await buildBusyOrderWorkbook(order);
+
+  if (wb && typeof window !== 'undefined' && window.XLSX) {
+    const XLSX = window.XLSX;
+    const u8 = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([u8], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    return { blob, filename };
+  }
+
+  // Fallback: CSV Blob if XLSX is not loaded
+  const customerName = order.customerName || '';
+  const createdBy = order.createdBy || '';
+  const checkedBy = order.checkedBy || '';
+  const dateStr = order.orderDate || new Date().toISOString().split('T')[0];
+  const timeStr = order.orderTime || '';
+
+  const csvLines = [
+    `"Order No",${escapeCsv(orderNo)}`,
+    `"Date",${escapeCsv(`${dateStr} ${timeStr}`.trim())}`,
+    `"Customer Name",${escapeCsv(customerName)}`,
+    `"Created By",${escapeCsv(createdBy)}`,
+    `"Checked By",${escapeCsv(checkedBy)}`,
+    '',
+    easyHeaders.map(escapeCsv).join(','),
+    ...easyRows.map(row => row.map(escapeCsv).join(','))
+  ];
+
+  const blob = new Blob([csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  return { blob, filename };
+}
+
+/**
+ * Generate Busy & Easy Accounting Excel for Customer Orders and download directly (backward-compatible)
+ * @param {Object} order - Customer order
+ * @returns {Promise<string>} Downloaded filename
+ */
+export async function generateBusyOrderExcel(order) {
+  const { wb, filename, easyHeaders, easyRows, orderNo } = await buildBusyOrderWorkbook(order);
+
+  // Check if SheetJS (XLSX) is available in window
+  if (wb && typeof window !== 'undefined' && window.XLSX) {
+    const XLSX = window.XLSX;
     // Write file directly to download
     XLSX.writeFile(wb, filename);
     return filename;
@@ -147,14 +210,6 @@ export async function generateBusyOrderExcel(order) {
   const timeStr = order.orderTime || '';
 
   const csvFilename = `${orderNo}_Order_Export.csv`;
-  const escapeCsv = (str) => {
-    if (str === null || str === undefined) return '';
-    const s = String(str);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  };
 
   const csvLines = [
     `"Order No",${escapeCsv(orderNo)}`,
@@ -259,14 +314,6 @@ export function exportStockMasterExcel(products, customFilename = null) {
 
   // Fallback CSV
   const csvFilename = filename.replace(/\.xlsx$/i, '.csv');
-  const escapeCsv = (str) => {
-    if (str === null || str === undefined) return '';
-    const s = String(str);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
-  };
 
   const csvLines = [
     headers.map(escapeCsv).join(','),
