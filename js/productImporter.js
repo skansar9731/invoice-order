@@ -119,6 +119,7 @@ export async function extractProductsFromPDF(file, onProgress = null) {
       const unit = fields.unit ? fields.unit.trim() : '';
       const alias = parsed.alias || fields.alias || '';
       const parentGroup = fields.parentGroup || '';
+      const group = parentGroup;
 
       const newProduct = {
         partNumber: parsed.partNumber,
@@ -126,6 +127,7 @@ export async function extractProductsFromPDF(file, onProgress = null) {
         itemDetails: parsed.itemDetails || fields.name.trim(),
         alias,
         parentGroup,
+        group,
         stockQty,
         unit,
         rack,
@@ -143,7 +145,8 @@ export async function extractProductsFromPDF(file, onProgress = null) {
           productMap.set(key, {
             ...newProduct,
             alias: prev.alias || newProduct.alias,
-            parentGroup: prev.parentGroup || newProduct.parentGroup
+            parentGroup: prev.parentGroup || newProduct.parentGroup,
+            group: prev.group || newProduct.group
           });
         }
         // 2. If prev has positive stock and new does not, keep prev but fill missing fields
@@ -314,23 +317,229 @@ export function parseNameField(rawName, existingAlias = '') {
 }
 
 /**
- * Complete Stock PDF Import Process
- * @param {File} file - PDF File
+ * Extract structured rows from Excel (.xlsx, .xls, .csv) spreadsheet
+ * Directly supports the format with Item Details, Qty., Unit, MRP, Rack, Group
+ * @param {File} file - Excel or CSV File object
+ * @param {function} onProgress - Progress callback
+ * @returns {Promise<Object>} Extracted products and warnings
+ */
+export async function extractProductsFromExcel(file, onProgress = null) {
+  let XLSX = typeof window !== 'undefined' ? window.XLSX : null;
+  if (!XLSX && typeof globalThis !== 'undefined' && globalThis.window) {
+    XLSX = globalThis.window.XLSX;
+  }
+  if (!XLSX) {
+    try {
+      const mod = await import('xlsx');
+      XLSX = mod.default || mod;
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!XLSX) {
+    throw new Error('SheetJS (XLSX) library is not loaded. Please verify your connection.');
+  }
+
+  if (onProgress) onProgress(1, 1);
+
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    throw new Error('The uploaded spreadsheet contains no sheets.');
+  }
+
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  if (!rows || rows.length === 0) {
+    throw new Error('The uploaded spreadsheet is empty.');
+  }
+
+  // Detect column mapping from header row
+  let headerRowIndex = -1;
+  const colIndexMap = {
+    itemDetails: -1,
+    qty: -1,
+    unit: -1,
+    mrp: -1,
+    rack: -1,
+    group: -1
+  };
+
+  for (let r = 0; r < Math.min(rows.length, 10); r++) {
+    const row = rows[r].map(c => String(c || '').trim().toLowerCase());
+    const hasItem = row.some(c => c.includes('item') || c.includes('description') || c.includes('product') || c.includes('part'));
+    const hasQty = row.some(c => c.includes('qty') || c.includes('quantity') || c.includes('stock'));
+    const hasRack = row.some(c => c.includes('rack'));
+    const hasMrp = row.some(c => c.includes('mrp') || c.includes('rate') || c.includes('price'));
+    const hasGroup = row.some(c => c.includes('group'));
+
+    if (hasItem && (hasQty || hasRack || hasMrp || hasGroup)) {
+      headerRowIndex = r;
+      row.forEach((cell, cIdx) => {
+        if (cell.includes('item') || cell.includes('description') || cell.includes('product name') || cell.includes('part number')) {
+          if (colIndexMap.itemDetails === -1) colIndexMap.itemDetails = cIdx;
+        } else if (cell.includes('qty') || cell.includes('quantity') || cell.includes('stock')) {
+          if (colIndexMap.qty === -1) colIndexMap.qty = cIdx;
+        } else if (cell.includes('unit')) {
+          if (colIndexMap.unit === -1) colIndexMap.unit = cIdx;
+        } else if (cell.includes('mrp') || cell.includes('rate') || cell.includes('price')) {
+          if (colIndexMap.mrp === -1) colIndexMap.mrp = cIdx;
+        } else if (cell.includes('rack')) {
+          if (colIndexMap.rack === -1) colIndexMap.rack = cIdx;
+        } else if (cell.includes('group')) {
+          if (colIndexMap.group === -1) colIndexMap.group = cIdx;
+        }
+      });
+      break;
+    }
+  }
+
+  // Fallback positional if standard layout
+  if (headerRowIndex === -1) {
+    headerRowIndex = 0;
+    colIndexMap.itemDetails = 0;
+    colIndexMap.qty = 1;
+    colIndexMap.unit = 2;
+    colIndexMap.mrp = 3;
+    colIndexMap.rack = 4;
+    colIndexMap.group = 5;
+  } else {
+    // If group wasn't matched directly, check if any column header has "group"
+    if (colIndexMap.group === -1) {
+      const headerRow = rows[headerRowIndex].map(c => String(c || '').trim().toLowerCase());
+      const gIdx = headerRow.findIndex(c => c.includes('group'));
+      if (gIdx !== -1) colIndexMap.group = gIdx;
+    }
+  }
+
+  const productMap = new Map();
+  const warnings = [];
+
+  for (let r = headerRowIndex + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || row.length === 0) continue;
+
+    const rawItemDetails = colIndexMap.itemDetails !== -1 ? String(row[colIndexMap.itemDetails] || '').trim() : '';
+    if (!rawItemDetails) continue;
+
+    const lowerItem = rawItemDetails.toLowerCase();
+    if (lowerItem.startsWith('total') || lowerItem.startsWith('grand total') || lowerItem.startsWith('page ')) {
+      continue;
+    }
+
+    const rawQty = colIndexMap.qty !== -1 ? row[colIndexMap.qty] : '';
+    const rawUnit = colIndexMap.unit !== -1 ? String(row[colIndexMap.unit] || '').trim() : '';
+    const rawMrp = colIndexMap.mrp !== -1 ? row[colIndexMap.mrp] : '';
+    const rawRack = colIndexMap.rack !== -1 ? String(row[colIndexMap.rack] || '').trim() : '';
+    const rawGroup = colIndexMap.group !== -1 ? String(row[colIndexMap.group] || '').trim() : '';
+
+    const parsed = parseNameField(rawItemDetails);
+    if (!parsed.partNumber && !parsed.productName) {
+      warnings.push({ row: r + 1, raw: rawItemDetails });
+      continue;
+    }
+
+    let stockQty = null;
+    if (rawQty !== null && rawQty !== undefined && String(rawQty).trim() !== '') {
+      const cleanStock = String(rawQty).replace(/,/g, '').trim();
+      const num = parseFloat(cleanStock);
+      if (!isNaN(num)) stockQty = num;
+    }
+
+    let rate = parsed.rate !== null ? parsed.rate : null;
+    if (rawMrp !== null && rawMrp !== undefined && String(rawMrp).trim() !== '') {
+      const cleanMrp = String(rawMrp).replace(/,/g, '').replace(/₹/g, '').trim();
+      const numMrp = parseFloat(cleanMrp);
+      if (!isNaN(numMrp)) rate = numMrp;
+    }
+
+    const rack = (rawRack === '-' || rawRack === '—') ? '' : rawRack;
+    const unit = (rawUnit === '-' || rawUnit === '—') ? '' : (rawUnit || 'Pcs.');
+    const group = (rawGroup === '-' || rawGroup === '—') ? '' : rawGroup;
+
+    const productRecord = {
+      partNumber: parsed.partNumber,
+      productName: parsed.productName,
+      itemDetails: parsed.itemDetails || rawItemDetails,
+      alias: parsed.alias || '',
+      parentGroup: group,
+      group: group,
+      stockQty,
+      unit,
+      rack,
+      rate,
+      mrp: rate,
+      page: 1
+    };
+
+    const key = parsed.partNumber;
+    if (productMap.has(key)) {
+      const prev = productMap.get(key);
+      if (productRecord.stockQty !== null && productRecord.stockQty > 0 && (prev.stockQty === null || prev.stockQty <= 0)) {
+        productMap.set(key, { ...productRecord, alias: prev.alias || productRecord.alias });
+      } else if (prev.stockQty !== null && prev.stockQty > 0 && (productRecord.stockQty === null || productRecord.stockQty <= 0)) {
+        if (!prev.rack && productRecord.rack) prev.rack = productRecord.rack;
+        if (!prev.group && productRecord.group) {
+          prev.group = productRecord.group;
+          prev.parentGroup = productRecord.group;
+        }
+      } else if (productRecord.stockQty !== null && productRecord.stockQty > 0 && prev.stockQty !== null && prev.stockQty > 0) {
+        prev.stockQty = prev.stockQty + productRecord.stockQty;
+        if (!prev.rack && productRecord.rack) prev.rack = productRecord.rack;
+        if (!prev.group && productRecord.group) {
+          prev.group = productRecord.group;
+          prev.parentGroup = productRecord.group;
+        }
+      } else {
+        if (!prev.group && productRecord.group) {
+          prev.group = productRecord.group;
+          prev.parentGroup = productRecord.group;
+        }
+      }
+    } else {
+      productMap.set(key, productRecord);
+    }
+  }
+
+  return {
+    products: Array.from(productMap.values()),
+    warnings,
+    totalPages: 1
+  };
+}
+
+/**
+ * Universal Stock Import Process (supports PDF, XLSX, XLS, CSV)
+ * @param {File} file - PDF or Excel File
  * @param {boolean} isReplace - Replace Master vs Update/Merge
  * @param {function} onProgress - Progress reporting (step, message, pct)
  */
-export async function processStockPDFImport(file, isReplace = false, onProgress = null) {
-  if (onProgress) onProgress('extracting', 'Reading PDF pages...', 10);
+export async function processStockImport(file, isReplace = false, onProgress = null) {
+  const isExcel = file.name && file.name.match(/\.(xlsx|xls|csv)$/i);
+  let extractResult;
 
-  const { products, warnings, totalPages } = await extractProductsFromPDF(file, (pageNum, total) => {
-    if (onProgress) {
-      const pct = Math.round(10 + (pageNum / total) * 60);
-      onProgress('extracting', `Extracting page ${pageNum} of ${total}...`, pct);
-    }
-  });
+  if (isExcel) {
+    if (onProgress) onProgress('extracting', 'Reading spreadsheet rows...', 15);
+    extractResult = await extractProductsFromExcel(file, (pageNum, total) => {
+      if (onProgress) onProgress('extracting', 'Extracting spreadsheet products...', 40);
+    });
+  } else {
+    if (onProgress) onProgress('extracting', 'Reading PDF pages...', 10);
+    extractResult = await extractProductsFromPDF(file, (pageNum, total) => {
+      if (onProgress) {
+        const pct = Math.round(10 + (pageNum / total) * 60);
+        onProgress('extracting', `Extracting page ${pageNum} of ${total}...`, pct);
+      }
+    });
+  }
+
+  const { products, warnings, totalPages } = extractResult;
 
   if (products.length === 0) {
-    throw new Error('No valid product rows were detected in the supplied PDF. Please verify the PDF format.');
+    throw new Error('No valid product rows were detected in the supplied file. Please verify format.');
   }
 
   if (onProgress) onProgress('saving', `Saving ${products.length} products to local database...`, 75);
@@ -357,4 +566,11 @@ export async function processStockPDFImport(file, isReplace = false, onProgress 
     totalPages,
     mode: isReplace ? 'Replaced Master' : 'Merged / Updated'
   };
+}
+
+/**
+ * Backward compatibility alias for PDF imports
+ */
+export async function processStockPDFImport(file, isReplace = false, onProgress = null) {
+  return processStockImport(file, isReplace, onProgress);
 }

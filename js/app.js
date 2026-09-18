@@ -6,7 +6,7 @@ import { getDB, clearProductStore, countProducts, getAllProducts, upsertProducts
 import { INITIAL_PRODUCTS } from './sampleData.js';
 import { extractOrderFromImage, getAIConfig, saveAIConfig, getAIStatus } from './aiService.js';
 import { matchAllOrderItems } from './matchingEngine.js';
-import { processStockPDFImport, extractProductsFromPDF } from './productImporter.js';
+import { processStockImport, processStockPDFImport, extractProductsFromPDF, extractProductsFromExcel } from './productImporter.js';
 import {
   getCurrentOrder,
   resetOrder,
@@ -763,20 +763,23 @@ function initStockImportEvents() {
     btnTriggerUpload.addEventListener('click', () => stockFileInput.click());
   }
 
-  // Stock PDF File Selected
+  // Stock File Selected (PDF, XLSX, XLS, CSV)
   if (stockFileInput) {
     stockFileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       try {
-        showToast('Reading stock PDF pages...', 'info');
+        const isExcel = file.name && file.name.match(/\.(xlsx|xls|csv)$/i);
+        showToast(isExcel ? 'Reading spreadsheet rows...' : 'Reading stock PDF pages...', 'info');
 
-        // Extract & Parse for Preview via coordinate parser
-        const { products, warnings, totalPages } = await extractProductsFromPDF(file);
+        // Extract & Parse for Preview
+        const { products, warnings, totalPages } = isExcel
+          ? await extractProductsFromExcel(file)
+          : await extractProductsFromPDF(file);
 
         if (products.length === 0) {
-          showToast('No valid product rows could be detected in this PDF.', 'error');
+          showToast(`No valid product rows could be detected in this ${isExcel ? 'spreadsheet' : 'PDF'}.`, 'error');
           return;
         }
 
@@ -790,8 +793,8 @@ function initStockImportEvents() {
         // Populate Preview Modal
         populateImportPreviewModal(file.name, products, warnings);
       } catch (err) {
-        console.error('PDF Read error:', err);
-        showToast('Failed to parse stock PDF: ' + err.message, 'error');
+        console.error('File read error:', err);
+        showToast('Failed to parse file: ' + err.message, 'error');
       } finally {
         stockFileInput.value = '';
       }
@@ -947,6 +950,7 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
         <td class="px-3 py-2 text-center text-slate-600">${escapeHtml(item.unit || 'Pcs.')}</td>
         <td class="px-3 py-2 text-center font-bold text-slate-900">${mrpVal !== '' ? Number(mrpVal).toLocaleString('en-IN') : '—'}</td>
         <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-700">${escapeHtml(item.rack || '—')}</span></td>
+        <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 bg-slate-100 rounded border border-slate-200 text-slate-700 font-medium">${escapeHtml(item.parentGroup || item.group || '—')}</span></td>
       `;
       sampleTableBody.appendChild(tr);
     });
@@ -972,6 +976,7 @@ function populateImportPreviewModal(fileName, validProducts, unparsedLines) {
           <div>Unit: <b class="text-slate-900">${escapeHtml(item.unit || 'Pcs.')}</b></div>
           <div>MRP: <b class="text-slate-900">${mrpVal !== '' ? Number(mrpVal).toLocaleString('en-IN') : '—'}</b></div>
           <div>Rack: <b class="text-slate-800">${escapeHtml(item.rack || '—')}</b></div>
+          <div class="col-span-2">Group: <b class="text-slate-800">${escapeHtml(item.parentGroup || item.group || '—')}</b></div>
         </div>
       `;
       sampleCardsContainer.appendChild(card);
@@ -1105,6 +1110,12 @@ function renderQuickSearchResults(searchResult) {
             <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(p.rack || '—')}</span>
           </div>
 
+          <!-- Group -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Group</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(p.parentGroup || p.group || '—')}</span>
+          </div>
+
           <!-- Action -->
           <div class="pt-1 flex items-center justify-between gap-2">
             <span class="font-extrabold text-slate-900 text-xs uppercase tracking-tight">Action</span>
@@ -1127,6 +1138,7 @@ function renderQuickSearchResults(searchResult) {
             <th class="px-4 py-3 text-center">Unit</th>
             <th class="px-4 py-3 text-center">MRP</th>
             <th class="px-4 py-3 text-center">Rack</th>
+            <th class="px-4 py-3 text-center">Group</th>
             <th class="px-4 py-3 text-center">Action</th>
           </tr>
         </thead>
@@ -1142,6 +1154,7 @@ function renderQuickSearchResults(searchResult) {
               <td class="px-4 py-3 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
               <td class="px-4 py-3 text-center font-bold text-slate-900">${mrpVal !== '' ? `₹${Number(mrpVal).toLocaleString('en-IN')}` : '—'}</td>
               <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 bg-slate-100 font-semibold rounded text-slate-700">${escapeHtml(p.rack || '—')}</span></td>
+              <td class="px-4 py-3 text-center"><span class="px-2 py-0.5 bg-slate-100 font-semibold rounded text-slate-700">${escapeHtml(p.parentGroup || p.group || '—')}</span></td>
               <td class="px-4 py-3 text-center">
                 <button type="button" data-add-to-order="${escapeHtml(p.partNumber)}" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white rounded text-xs font-semibold shadow-sm transition">
                   + Add to Order

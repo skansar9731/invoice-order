@@ -262,7 +262,8 @@ export function exportStockMasterExcel(products, customFilename = null) {
     'Qty.',
     'Unit',
     'MRP',
-    'Rack'
+    'Rack',
+    'Group'
   ];
 
   const dataRows = products.map(p => {
@@ -284,13 +285,15 @@ export function exportStockMasterExcel(products, customFilename = null) {
     const unit = (p.unit && p.unit !== '-' && p.unit !== '—') ? p.unit.trim() : 'Pcs.';
     const mrp = (p.rate !== null && p.rate !== undefined && p.rate !== '') ? Number(p.rate) : (p.mrp ? Number(p.mrp) : '');
     const rack = (p.rack && p.rack !== '-' && p.rack !== '—') ? p.rack.trim() : '';
+    const group = (p.parentGroup || p.group || '').trim();
 
     return [
       itemDetails,
       qty,
       unit,
       mrp,
-      rack
+      rack,
+      group
     ];
   });
 
@@ -304,7 +307,8 @@ export function exportStockMasterExcel(products, customFilename = null) {
       { wch: 12 }, // Qty.
       { wch: 10 }, // Unit
       { wch: 12 }, // MRP
-      { wch: 14 }  // Rack
+      { wch: 14 }, // Rack
+      { wch: 14 }  // Group
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Stock List');

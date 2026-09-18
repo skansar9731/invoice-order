@@ -233,6 +233,11 @@ export function renderOrderTable() {
             <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(item.matchedProduct.rack)}</span>
           ` : `<span class="text-slate-400 text-xs">—</span>`}
         </td>
+        <td class="px-3 py-3 text-center">
+          ${item.matchedProduct && (item.matchedProduct.parentGroup || item.matchedProduct.group) ? `
+            <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(item.matchedProduct.parentGroup || item.matchedProduct.group)}</span>
+          ` : `<span class="text-slate-400 text-xs">—</span>`}
+        </td>
         <td class="px-3 py-3 text-center whitespace-nowrap">
           ${matchBadgeHtml}
         </td>
@@ -337,6 +342,12 @@ export function renderOrderTable() {
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">Rack Location</span>
             <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(item.matchedProduct.rack || '—')}</span>
+          </div>
+
+          <!-- Group -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Group</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(item.matchedProduct.parentGroup || item.matchedProduct.group || '—')}</span>
           </div>
 
           <!-- Actions -->
@@ -467,6 +478,12 @@ export async function performManualModalSearch(query) {
             <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(product.rack || '—')}</span>
           </div>
 
+          <!-- Group -->
+          <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+            <span class="font-extrabold text-slate-900 uppercase tracking-tight">Group</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(product.parentGroup || product.group || '—')}</span>
+          </div>
+
           <!-- Action -->
           <div class="pt-1 flex items-center justify-between gap-2">
             <span class="font-extrabold text-slate-900 text-xs uppercase tracking-tight">Action</span>
@@ -488,6 +505,7 @@ export async function performManualModalSearch(query) {
             <th class="px-3 py-2.5 text-center">Unit</th>
             <th class="px-3 py-2.5 text-center">MRP</th>
             <th class="px-3 py-2.5 text-center">Rack</th>
+            <th class="px-3 py-2.5 text-center">Group</th>
             <th class="px-3 py-2.5 text-center">Action</th>
           </tr>
         </thead>
@@ -499,6 +517,7 @@ export async function performManualModalSearch(query) {
               <td class="px-3 py-2.5 text-center text-slate-500">${escapeHtml(product.unit || '—')}</td>
               <td class="px-3 py-2.5 text-center font-bold text-slate-900">${product.rate !== null && product.rate !== undefined && product.rate !== '' ? `₹${Number(product.rate).toLocaleString('en-IN')}` : '—'}</td>
               <td class="px-3 py-2.5 text-center"><span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">${escapeHtml(product.rack || '—')}</span></td>
+              <td class="px-3 py-2.5 text-center"><span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">${escapeHtml(product.parentGroup || product.group || '—')}</span></td>
               <td class="px-3 py-2.5 text-center">
                 <button type="button" class="px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded font-bold text-xs shadow-sm transition">
                   Select

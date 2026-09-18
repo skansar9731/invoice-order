@@ -47,7 +47,9 @@ samplePDFRows.forEach(row => {
     stockQty: 1,
     unit: 'Pcs.',
     rate: parsed.rate,
-    rack: 'R-1 A'
+    rack: 'R-1 A',
+    parentGroup: 'HERO',
+    group: 'HERO'
   });
 });
 
@@ -57,7 +59,7 @@ const exportedFile = exportStockMasterExcel(parsedProducts, 'Maharashtra_Automob
 console.log('Generated file:', exportedFile);
 
 const stockExport = writtenFiles[writtenFiles.length - 1];
-const expectedHeaders = ['Item Details', 'Qty.', 'Unit', 'MRP', 'Rack'];
+const expectedHeaders = ['Item Details', 'Qty.', 'Unit', 'MRP', 'Rack', 'Group'];
 const actualHeaders = stockExport.ws['!data'][0];
 
 console.log('Headers:', actualHeaders);
@@ -65,14 +67,14 @@ if (JSON.stringify(actualHeaders) !== JSON.stringify(expectedHeaders)) {
   console.error('FAILED: Headers do not match:', actualHeaders);
   process.exit(1);
 }
-console.log('✓ PASSED: Stock Master Excel has exact 5 columns (Item Details, Qty., Unit, MRP, Rack)');
+console.log('✓ PASSED: Stock Master Excel has exact 6 columns (Item Details, Qty., Unit, MRP, Rack, Group)');
 
 const row1 = stockExport.ws['!data'][1];
 console.log('Row 1:', row1);
-if (row1[0] !== '21K211S BOR KIT GLAMOUR FI 2011 3310/-' || row1[1] !== '1.000' || row1[2] !== 'Pcs.' || row1[3] !== 3310 || row1[4] !== 'R-1 A') {
+if (row1[0] !== '21K211S BOR KIT GLAMOUR FI 2011 3310/-' || row1[1] !== '1.000' || row1[2] !== 'Pcs.' || row1[3] !== 3310 || row1[4] !== 'R-1 A' || row1[5] !== 'HERO') {
   console.error('FAILED: Row 1 does not match expected data:', row1);
   process.exit(1);
 }
-console.log('✓ PASSED: Row 1 matches exact attached Excel format.');
+console.log('✓ PASSED: Row 1 matches exact attached Excel format with Group column.');
 
 console.log('\n=== ALL ATTACHED EXCEL FORMAT TESTS PASSED 100%! ===\n');

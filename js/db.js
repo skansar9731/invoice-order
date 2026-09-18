@@ -139,16 +139,25 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
         productMap.set(key, {
           ...item,
           alias: prev.alias || item.alias,
-          parentGroup: prev.parentGroup || item.parentGroup
+          parentGroup: item.parentGroup || item.group || prev.parentGroup || prev.group || '',
+          group: item.group || item.parentGroup || prev.group || prev.parentGroup || ''
         });
       } else if (prevStock !== null && prevStock > 0 && (currStock === null || currStock <= 0)) {
         if (!prev.rack && item.rack) prev.rack = item.rack;
         if (!prev.rate && item.rate) prev.rate = item.rate;
         if (!prev.alias && item.alias) prev.alias = item.alias;
+        if (!prev.parentGroup && (item.parentGroup || item.group)) {
+          prev.parentGroup = item.parentGroup || item.group;
+          prev.group = prev.parentGroup;
+        }
       } else if (currStock !== null && currStock > 0 && prevStock !== null && prevStock > 0) {
         prev.stockQty = prevStock + currStock;
         if (!prev.rack && item.rack) prev.rack = item.rack;
         if (!prev.rate && item.rate) prev.rate = item.rate;
+        if (!prev.parentGroup && (item.parentGroup || item.group)) {
+          prev.parentGroup = item.parentGroup || item.group;
+          prev.group = prev.parentGroup;
+        }
       } else {
         const prevScore = (prev.rack ? 2 : 0) + (prev.rate ? 2 : 0) + (String(prev.productName || '').length > 5 ? 1 : 0);
         const currScore = (item.rack ? 2 : 0) + (item.rate ? 2 : 0) + (String(item.productName || '').length > 5 ? 1 : 0);
@@ -156,7 +165,8 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
           productMap.set(key, {
             ...item,
             alias: prev.alias || item.alias,
-            parentGroup: prev.parentGroup || item.parentGroup
+            parentGroup: item.parentGroup || item.group || prev.parentGroup || prev.group || '',
+            group: item.group || item.parentGroup || prev.group || prev.parentGroup || ''
           });
         }
       }
@@ -183,7 +193,9 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
         const partNumber = String(item.partNumber).trim().toUpperCase();
         const productName = String(item.productName || '').trim().toUpperCase();
         const alias = item.alias !== undefined && item.alias !== null ? String(item.alias).trim() : '';
-        const parentGroup = item.parentGroup !== undefined && item.parentGroup !== null ? String(item.parentGroup).trim() : '';
+        const rawGroup = item.parentGroup || item.group || '';
+        const parentGroup = rawGroup !== undefined && rawGroup !== null ? String(rawGroup).trim() : '';
+        const group = parentGroup;
 
         // Stock: Preserve actual 0 as 0, and missing as null
         let stockQty = null;
@@ -219,6 +231,7 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
           itemDetails,
           alias,
           parentGroup,
+          group,
           stockQty,
           rack,
           unit,

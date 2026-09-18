@@ -414,6 +414,7 @@
                   <th class="px-3 py-3 text-center w-16">Unit</th>
                   <th class="px-3 py-3 text-center w-20">MRP</th>
                   <th class="px-3 py-3 text-center w-20">Rack</th>
+                  <th class="px-3 py-3 text-center w-20">Group</th>
                   <th class="px-3 py-3 text-center min-w-[100px]">Confidence</th>
                   <th class="px-3 py-3 text-center w-24">Actions</th>
                 </tr>
@@ -441,30 +442,29 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
 
         <div>
-          <h2 class="text-lg font-bold text-slate-900">Import Stock List PDF</h2>
+          <h2 class="text-lg font-bold text-slate-900">Import Stock List (PDF / Excel / CSV)</h2>
 
         </div>
 
         <!-- Import Zone -->
         <div
           class="border-2 border-dashed border-slate-300 hover:border-slate-800 bg-slate-50 hover:bg-slate-100/60 rounded-xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center">
-          <input type="file" id="stock-pdf-input" accept=".pdf" class="hidden">
+          <input type="file" id="stock-pdf-input" accept=".pdf,.xlsx,.xls,.csv" class="hidden">
           <div
             class="w-14 h-14 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-3xl mb-3 font-bold">
             📑
           </div>
-          <h3 class="text-sm font-bold text-slate-800">Select Shop Stock PDF File</h3>
+          <h3 class="text-sm font-bold text-slate-800">Select Shop Stock File (PDF / Excel / CSV)</h3>
           <p class="text-xs text-slate-500 mt-1 max-w-md">
-            The importer supports varying column whitespace and delimiters (e.g.
-            <code>14401K0ND00 — TEMING CHAINE SHINE BS6 — 7.000 — Pcs. — 193.00 — R-3 K</code>).
+            The importer supports Excel (.xlsx, .xls, .csv) and PDF reports with column delimiters (e.g.
+            <code>Item Details — Qty. — Unit — MRP — Rack — Group</code>).
           </p>
           <button id="btn-trigger-stock-upload"
             class="mt-4 px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow-sm transition">
-            Browse Stock PDF
+            Browse Stock File
           </button>
           <p class="text-xs text-slate-500 mt-1">
-            Import your complete spare parts stock report PDF (e.g. 5-page report or 6,000–10,000+ products). The system
-            extracts Item Details, Qty., Unit, MRP, and Rack.
+            Import your complete spare parts stock report (PDF or Excel). The system extracts Item Details, Qty., Unit, MRP, Rack, and Group.
           </p>
         </div>
 
@@ -520,7 +520,7 @@
               🔍
             </span>
             <input type="text" id="finder-search-input"
-              placeholder="Search by Item Details (e.g. 21K211S BOR KIT GLAMOUR FI), MRP, or Rack (e.g. R-1 A)..."
+              placeholder="Search by Item Details (e.g. 21K211S BOR KIT GLAMOUR FI), MRP, Rack, or Group (e.g. HERO)..."
               class="w-full text-sm pl-10 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
           </div>
         </div>
@@ -728,6 +728,7 @@
                   <th class="px-3 py-2 text-center">Unit</th>
                   <th class="px-3 py-2 text-center">MRP</th>
                   <th class="px-3 py-2 text-center">Rack</th>
+                  <th class="px-3 py-2 text-center">Group</th>
                 </tr>
               </thead>
               <tbody id="import-sample-table-body" class="divide-y divide-slate-100 text-slate-800">

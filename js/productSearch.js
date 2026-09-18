@@ -57,7 +57,8 @@ export async function getCachedProducts(forceRefresh = false) {
     const normPart = (p.partNumber || '').toUpperCase();
     const normName = (p.productName || '').toUpperCase();
     const normRack = (p.rack || '').toUpperCase();
-    const cleanSearchStr = `${normPart} ${normName} ${normRack}`.toLowerCase();
+    const normGroup = (p.parentGroup || p.group || '').toUpperCase();
+    const cleanSearchStr = `${normPart} ${normName} ${normRack} ${normGroup}`.toLowerCase();
     
     return {
       ...p,
@@ -141,6 +142,12 @@ export async function searchLocalProducts(query, limit = 50, offset = 0) {
     // 3. Rack exact or partial match
     if (item.rack && item.rack.toLowerCase().includes(normalized)) {
       score += 100;
+    }
+
+    // 3b. Group exact or partial match
+    const itemGroup = (item.parentGroup || item.group || '').toLowerCase();
+    if (itemGroup && (itemGroup === normalized || itemGroup.includes(normalized))) {
+      score += 150;
     }
 
     // 4. Multi-token match across product fields
