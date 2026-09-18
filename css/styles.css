@@ -89,3 +89,66 @@ table thead th {
   }
 }
 
+/* ==========================================================================
+   MOBILE BOTTOM NAVBAR & SAFE AREA ENGINE
+   Ensures seamless fit on iPhone notch/home bar, Android gesture bars,
+   and screens ranging from 320px up to 767px.
+   ========================================================================== */
+#toast-container {
+  bottom: 5.5rem;
+}
+
+@media (min-width: 768px) {
+  #toast-container {
+    bottom: 1.25rem;
+  }
+}
+
+#mobile-bottom-nav {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  #mobile-bottom-nav > div {
+    padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
+  }
+}
+
+/* Active bottom nav button feedback */
+.bottom-nav-btn {
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+}
+
+.bottom-nav-btn:focus-visible {
+  ring: 2px solid #34d399;
+}
+
+/* Responsive micro-scaling for ultra-small mobile displays (< 360px) */
+@media screen and (max-width: 359px) {
+  .bottom-nav-label {
+    font-size: 8.5px !important;
+    letter-spacing: -0.03em;
+  }
+  .bottom-nav-btn {
+    padding-left: 1px !important;
+    padding-right: 1px !important;
+  }
+}
+
+/* Rack Map styling */
+.rack-card {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.rack-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+.rack-card.active-rack {
+  border-color: #10b981 !important;
+  background-color: #ecfdf5 !important;
+  box-shadow: 0 0 0 2px #10b981;
+}
+

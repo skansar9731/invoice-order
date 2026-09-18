@@ -28,6 +28,9 @@ import {
 import { exportStockMasterExcel } from './excelGenerator.js';
 import { searchLocalProducts, debounce, invalidateSearchCache } from './productSearch.js';
 import { initializeGoogleDrive } from './googleDriveService.js';
+import { loadRackMap } from './rackMap.js';
+import { loadCounterMap } from './counterMap.js';
+import { initMapManagerEvents } from './mapManager.js';
 
 let pendingImportData = null;
 
@@ -43,6 +46,7 @@ if (typeof document !== 'undefined') {
       // 2. Setup UI & Event Listeners
       initUIEventListeners();
       initAppNavigation();
+      initMapManagerEvents();
       initOrderEntryEvents();
       initStockImportEvents();
       initQuickSearchEvents();
@@ -103,7 +107,17 @@ function updateAIStatusBadge(isConnectedOverride = null) {
 }
 
 /**
- * Tab Navigation Handling (Supports Desktop Tabs Bar and Mobile Hamburger Menu)
+ * Programmatic tab switcher helper
+ */
+export function switchToTab(tabId) {
+  const triggerBtn = document.querySelector(`[data-tab-target="${tabId}"]`);
+  if (triggerBtn) {
+    triggerBtn.click();
+  }
+}
+
+/**
+ * Tab Navigation Handling (Supports Desktop Tabs Bar, Mobile Hamburger Drawer, and Mobile Bottom Nav)
  */
 function initAppNavigation() {
   const tabs = document.querySelectorAll('[data-tab-target]');
@@ -145,23 +159,39 @@ function initAppNavigation() {
     }
   });
 
-  // Handle tab clicks across both Desktop and Mobile menu items
+  // Handle tab clicks across Desktop, Mobile menu drawer, and Mobile Bottom Nav
   tabs.forEach(tab => {
     tab.addEventListener('click', (e) => {
       e.preventDefault();
       const targetId = tab.dataset.tabTarget;
 
-      // Close mobile menu on tab selection
+      // Close mobile menu drawer on tab selection
       toggleMobileMenu(true);
 
-      // Synchronize active classes on all matching tab buttons
+      // Synchronize active classes on all matching tab buttons across all 3 nav areas
       tabs.forEach(t => {
-        if (t.dataset.tabTarget === targetId) {
-          t.classList.add('bg-slate-900', 'text-white', 'shadow-sm');
-          t.classList.remove('text-slate-300', 'text-slate-600', 'hover:bg-slate-700/50', 'hover:bg-slate-700/60');
+        const isTarget = t.dataset.tabTarget === targetId;
+        const isBottomNav = t.dataset.bottomNav === 'true' || t.classList.contains('bottom-nav-btn');
+
+        if (isBottomNav) {
+          const indicator = t.querySelector('.bottom-nav-indicator');
+          if (isTarget) {
+            t.classList.add('text-emerald-400', 'bg-slate-800/80', 'font-bold');
+            t.classList.remove('text-slate-400', 'hover:text-slate-200', 'font-medium');
+            if (indicator) indicator.classList.remove('hidden');
+          } else {
+            t.classList.remove('text-emerald-400', 'bg-slate-800/80', 'font-bold');
+            t.classList.add('text-slate-400', 'hover:text-slate-200', 'font-medium');
+            if (indicator) indicator.classList.add('hidden');
+          }
         } else {
-          t.classList.remove('bg-slate-900', 'text-white', 'shadow-sm');
-          t.classList.add('text-slate-300');
+          if (isTarget) {
+            t.classList.add('bg-slate-900', 'text-white', 'shadow-sm');
+            t.classList.remove('text-slate-300', 'text-slate-600', 'hover:bg-slate-700/50', 'hover:bg-slate-700/60');
+          } else {
+            t.classList.remove('bg-slate-900', 'text-white', 'shadow-sm');
+            t.classList.add('text-slate-300');
+          }
         }
       });
 
@@ -182,9 +212,27 @@ function initAppNavigation() {
         }
       } else if (targetId === 'tab-stock') {
         refreshDashboardStats();
+      } else if (targetId === 'tab-rack-map') {
+        initOrRefreshRackMap();
+      } else if (targetId === 'tab-counter-map') {
+        initOrRefreshCounterMap();
       }
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
+
+}
+
+/**
+ * Rack Map & Counter Map Module Delegations
+ */
+export async function initOrRefreshRackMap() {
+  return loadRackMap();
+}
+
+export async function initOrRefreshCounterMap() {
+  return loadCounterMap();
 }
 
 // Multi-Image State Management (Preserves exact sequence of images)
@@ -1233,7 +1281,10 @@ function initPWA() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('./service-worker.js')
-        .then(reg => console.log('PWA ServiceWorker registered with scope:', reg.scope))
+        .then(reg => {
+          reg.update();
+          console.log('PWA ServiceWorker registered with scope:', reg.scope);
+        })
         .catch(err => console.warn('ServiceWorker registration skipped:', err));
     });
   }

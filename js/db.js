@@ -4,19 +4,37 @@
  */
 
 import { INITIAL_PRODUCTS } from './sampleData.js';
+import { buildInitialRackConfigs, buildInitialCounterConfigs } from './mapConfigData.js';
 
 const DB_NAME = 'MaharashtraAutoPartsDB';
-const DB_VERSION = 1;
-const STORE_PRODUCTS = 'products';
-const STORE_META = 'meta';
+const DB_VERSION = 2;
+export const STORE_PRODUCTS = 'products';
+export const STORE_META = 'meta';
+export const STORE_RACK_CONFIG = 'rackMapConfig';
+export const STORE_COUNTER_CONFIG = 'counterMapConfig';
+export const STORE_COUNTER_MAPPINGS = 'counterProductMapping';
 
 let dbInstance = null;
 
 export async function getDB() {
   if (dbInstance) return dbInstance;
 
+  // Determine target version safely against browser storage
+  let targetVersion = DB_VERSION;
+  if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
+    try {
+      const dbs = await indexedDB.databases();
+      const existing = dbs.find((d) => d.name === DB_NAME);
+      if (existing && existing.version && existing.version > targetVersion) {
+        targetVersion = existing.version;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(DB_NAME, targetVersion);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
@@ -30,6 +48,20 @@ export async function getDB() {
       if (!db.objectStoreNames.contains(STORE_META)) {
         db.createObjectStore(STORE_META, { keyPath: 'key' });
       }
+
+      if (!db.objectStoreNames.contains(STORE_RACK_CONFIG)) {
+        db.createObjectStore(STORE_RACK_CONFIG, { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_COUNTER_CONFIG)) {
+        db.createObjectStore(STORE_COUNTER_CONFIG, { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains(STORE_COUNTER_MAPPINGS)) {
+        const cStore = db.createObjectStore(STORE_COUNTER_MAPPINGS, { keyPath: 'id' });
+        cStore.createIndex('counterId', 'counterId', { unique: false });
+        cStore.createIndex('partNumber', 'partNumber', { unique: false });
+      }
     };
 
     request.onsuccess = (event) => {
@@ -38,8 +70,23 @@ export async function getDB() {
     };
 
     request.onerror = (event) => {
-      console.error('IndexedDB open error:', event.target.error);
-      reject(event.target.error);
+      const err = event.target.error;
+      // Defensive fallback if a VersionError occurs (e.g. browser cache was stale)
+      if (err && err.name === 'VersionError') {
+        console.warn('VersionError encountered; falling back to opening database at existing version...', err);
+        const fallbackRequest = indexedDB.open(DB_NAME);
+        fallbackRequest.onsuccess = (ev) => {
+          dbInstance = ev.target.result;
+          resolve(dbInstance);
+        };
+        fallbackRequest.onerror = (ev) => {
+          console.error('Fallback IndexedDB open error:', ev.target.error);
+          reject(ev.target.error);
+        };
+        return;
+      }
+      console.error('IndexedDB open error:', err);
+      reject(err);
     };
   });
 }
@@ -321,3 +368,163 @@ export async function getShopStats() {
     lastImportFileName: stats?.lastImportFileName || 'Sample Preset'
   };
 }
+
+/**
+ * ============================================================================
+ * RACK MAP CONFIGURATION (STORE: rackMapConfig)
+ * Stores 71 active racks (R1–R73 excluding R12 and R64) with sections & sub-sections
+ * ============================================================================
+ */
+export async function getRackConfigs() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_RACK_CONFIG, 'readonly');
+    const store = tx.objectStore(STORE_RACK_CONFIG);
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+      let results = req.result || [];
+      if (results.length === 0) {
+        // Seed once on initial empty load
+        const initialRacks = buildInitialRackConfigs();
+        await saveAllRackConfigs(initialRacks);
+        resolve(initialRacks);
+      } else {
+        // Sort naturally by rack number
+        results.sort((a, b) => (a.rackNum || 0) - (b.rackNum || 0));
+        resolve(results);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveRackConfig(rack) {
+  if (!rack || !rack.id) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_RACK_CONFIG, 'readwrite');
+    const store = tx.objectStore(STORE_RACK_CONFIG);
+    const req = store.put(rack);
+    req.onsuccess = () => resolve(true);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveAllRackConfigs(racks) {
+  if (!Array.isArray(racks) || racks.length === 0) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_RACK_CONFIG, 'readwrite');
+    const store = tx.objectStore(STORE_RACK_CONFIG);
+    racks.forEach(r => store.put(r));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * ============================================================================
+ * COUNTER MAP CONFIGURATION (STORE: counterMapConfig)
+ * Stores 8 counters (C1–C8) with independent section configurations
+ * ============================================================================
+ */
+export async function getCounterConfigs() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_CONFIG, 'readonly');
+    const store = tx.objectStore(STORE_COUNTER_CONFIG);
+    const req = store.getAll();
+
+    req.onsuccess = async () => {
+      let results = req.result || [];
+      if (results.length === 0) {
+        // Seed once on initial empty load
+        const initialCounters = buildInitialCounterConfigs();
+        await saveAllCounterConfigs(initialCounters);
+        resolve(initialCounters);
+      } else {
+        // Sort naturally by counter number
+        results.sort((a, b) => (a.counterNum || 0) - (b.counterNum || 0));
+        resolve(results);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveCounterConfig(counter) {
+  if (!counter || !counter.id) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_CONFIG, 'readwrite');
+    const store = tx.objectStore(STORE_COUNTER_CONFIG);
+    const req = store.put(counter);
+    req.onsuccess = () => resolve(true);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveAllCounterConfigs(counters) {
+  if (!Array.isArray(counters) || counters.length === 0) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_CONFIG, 'readwrite');
+    const store = tx.objectStore(STORE_COUNTER_CONFIG);
+    counters.forEach(c => store.put(c));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * ============================================================================
+ * COUNTER PRODUCT MAPPINGS (STORE: counterProductMapping)
+ * Stores product assignments to Counter and Sections without duplicating products
+ * ============================================================================
+ */
+export async function getCounterProductMappings() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_MAPPINGS, 'readonly');
+    const store = tx.objectStore(STORE_COUNTER_MAPPINGS);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function assignProductToCounter(partNumber, counterId, sectionCode, subSectionId = '') {
+  if (!partNumber || !counterId || !sectionCode) return;
+  const db = await getDB();
+  const id = `${partNumber.trim().toUpperCase()}_${counterId}_${sectionCode.toUpperCase()}`;
+  const record = {
+    id,
+    partNumber: partNumber.trim().toUpperCase(),
+    counterId,
+    sectionCode: sectionCode.toUpperCase(),
+    subSectionId: subSectionId || '',
+    assignedAt: Date.now()
+  };
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_MAPPINGS, 'readwrite');
+    const store = tx.objectStore(STORE_COUNTER_MAPPINGS);
+    const req = store.put(record);
+    req.onsuccess = () => resolve(record);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function removeProductFromCounter(mappingId) {
+  if (!mappingId) return;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_COUNTER_MAPPINGS, 'readwrite');
+    const store = tx.objectStore(STORE_COUNTER_MAPPINGS);
+    const req = store.delete(mappingId);
+    req.onsuccess = () => resolve(true);
+    req.onerror = () => reject(req.error);
+  });
+}
+

@@ -3,7 +3,7 @@
  * Caches core app shell and external libraries for full offline product matching & PDF generation
  */
 
-const CACHE_NAME = 'maharashtra-autoparts-v1';
+const CACHE_NAME = 'maharashtra-autoparts-v2';
 
 const STATIC_ASSETS = [
   './',
@@ -20,6 +20,11 @@ const STATIC_ASSETS = [
   './js/pdfGenerator.js',
   './js/aiService.js',
   './js/ui.js',
+  './js/rackMap.js',
+  './js/counterMap.js',
+  './js/mapManager.js',
+  './js/rackParser.js',
+  './js/mapConfigData.js',
   './assets/icons/icon.svg',
   'https://cdn.tailwindcss.com',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
@@ -31,7 +36,7 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Pre-caching static app shell');
+      console.log('[SW] Pre-caching static app shell v2');
       return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('[SW] Pre-cache partial fail (some CDN resources may cache on demand):', err);
       });
@@ -62,13 +67,37 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Same-origin app assets: Network-first to prevent stale cache bugs
+  const isSameOrigin = event.request.url.startsWith(self.location.origin);
+  if (isSameOrigin) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            if (event.request.mode === 'navigate') {
+              return caches.match('./index.html');
+            }
+          });
+        })
+    );
+    return;
+  }
+
+  // Third-party CDN resources: Cache-first with network fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
       return fetch(event.request).then((networkResponse) => {
-        // Cache external scripts or fonts on the fly
         if (
           networkResponse &&
           networkResponse.status === 200 &&
@@ -80,11 +109,6 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        // Offline fallback for navigation requests
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
       });
     })
   );
