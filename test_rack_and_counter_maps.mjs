@@ -6,7 +6,7 @@ import {
   buildInitialCounterConfigs,
   generateSections
 } from './js/mapConfigData.js';
-import { parseProductRack, UNASSIGNED_SECTION_CODE } from './js/rackParser.js';
+import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './js/rackParser.js';
 
 console.log('=== RUNNING RACK MAP & COUNTER MAP MODULES VERIFICATION TEST ===\n');
 
@@ -127,8 +127,21 @@ console.log('    Counter 8: A-T (20 sections)');
 console.log('\nTest 4: Verifying rack parsing algorithm...');
 
 const parseTests = [
+  { input: 'R-60 A1', expectedRack: 'R60', expectedSections: ['A'], recognizable: true },
+  { input: 'R-60 B1', expectedRack: 'R60', expectedSections: ['B'], recognizable: true },
+  { input: 'R-60 C2', expectedRack: 'R60', expectedSections: ['C'], recognizable: true },
+  { input: 'R-60 D7', expectedRack: 'R60', expectedSections: ['D'], recognizable: true },
+  { input: 'R-15 ABC', expectedRack: 'R15', expectedSections: ['A', 'B', 'C'], recognizable: true },
+  { input: 'R-15 DEF', expectedRack: 'R15', expectedSections: ['D', 'E', 'F'], recognizable: true },
+  { input: 'R-72 A & B', expectedRack: 'R72', expectedSections: ['A', 'B'], recognizable: true },
+  { input: 'R-72 N & P', expectedRack: 'R72', expectedSections: ['N', 'P'], recognizable: true },
+  { input: 'R-72 A&B', expectedRack: 'R72', expectedSections: ['A', 'B'], recognizable: true },
+  { input: 'R-72 N&P', expectedRack: 'R72', expectedSections: ['N', 'P'], recognizable: true },
+  { input: 'R-60 A1 A2 A3 A4', expectedRack: 'R60', expectedSections: ['A'], recognizable: true },
   { input: 'R-66 E', expectedRack: 'R66', expectedSections: ['E'], recognizable: true },
-  { input: 'R-60 N & P', expectedRack: 'R60', expectedSections: ['N', 'P'], recognizable: true },
+  { input: 'R-50 AB', expectedRack: 'R50', expectedSections: ['A', 'B'], recognizable: true },
+  { input: 'R-50 A, B, C', expectedRack: 'R50', expectedSections: ['A', 'B', 'C'], recognizable: true },
+  { input: 'R-50 A AND B', expectedRack: 'R50', expectedSections: ['A', 'B'], recognizable: true },
   { input: 'R-1 G', expectedRack: 'R1', expectedSections: ['G'], recognizable: true },
   { input: 'R1 B', expectedRack: 'R1', expectedSections: ['B'], recognizable: true },
   { input: 'R2 C', expectedRack: 'R2', expectedSections: ['C'], recognizable: true },
@@ -158,7 +171,36 @@ for (const pt of parseTests) {
     process.exit(1);
   }
 }
-console.log('  ✓ PASSED: All rack strings parsed accurately (including multi-section and unassigned cases).');
+console.log('  ✓ PASSED: All rack strings parsed accurately (including R-60 A1, R-15 ABC, R-72 A & B, R-72 N & P, and unassigned cases).');
+
+// ----------------------------------------------------------------------------
+// Test 4b: Quantity Distribution Algorithm Across Sections
+// ----------------------------------------------------------------------------
+console.log('\nTest 4b: Verifying quantity distribution algorithm across multiple sections...');
+
+const distTests = [
+  { total: 50, sections: 3, expected: [17, 17, 16] },
+  { total: 60, sections: 2, expected: [30, 30] },
+  { total: 10, sections: 4, expected: [3, 3, 2, 2] },
+  { total: 40, sections: 2, expected: [20, 20] },
+  { total: 46, sections: 2, expected: [23, 23] },
+  { total: 84, sections: 3, expected: [28, 28, 28] },
+  { total: 35, sections: 2, expected: [18, 17] }
+];
+
+for (const dt of distTests) {
+  const res = distributeQuantityAcrossSections(dt.total, dt.sections);
+  const sum = res.reduce((a, b) => a + b, 0);
+  if (sum !== dt.total) {
+    console.error(`FAILED: Sum mismatch for total ${dt.total}, got sum ${sum} (${JSON.stringify(res)})`);
+    process.exit(1);
+  }
+  if (JSON.stringify(res) !== JSON.stringify(dt.expected)) {
+    console.error(`FAILED: Expected ${JSON.stringify(dt.expected)}, got ${JSON.stringify(res)} for total ${dt.total} across ${dt.sections} sections`);
+    process.exit(1);
+  }
+}
+console.log('  ✓ PASSED: Quantity distributed accurately (50 -> 17/17/16 in ABC; 60 -> 30/30 in A & B; 10 -> 3/3/2/2 in 4 sections; 84 -> 28/28/28).');
 
 // ----------------------------------------------------------------------------
 // Test 5: Section Display Name Renaming & Sub-sections structure

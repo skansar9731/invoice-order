@@ -2,25 +2,28 @@
  * Rack Map Module Controller
  * Maharashtra Automobile — Physical Storage Floor Reference Layer
  *
- * Flow:
- *  Rack Map → Select Rack → Display that Rack's sections → Click Section → Display products
+ * 100% AUTOMATIC and derived purely from the existing Product Master (product.rack).
+ * Read-only reference layer with ZERO manual CRUD configuration.
+ * Single Source of Truth: Product Master in IndexedDB.
  *
- * 71 Active Racks (R1–R73 excluding R12 and R64)
- * Single Source of Truth: Product Master in IndexedDB
+ * Hierarchy:
+ *  Rack (e.g. R60, R15) → Section (e.g. A, B, C) → Sub-section (e.g. 1, 2, 7) → Products
  */
 
-import { getAllProducts, getRackConfigs, saveRackConfig } from './db.js';
-import { parseProductRack, UNASSIGNED_SECTION_CODE } from './rackParser.js';
+import { getAllProducts } from './db.js';
+import { INITIAL_RACKS_SPEC, generateSections } from './mapConfigData.js';
+import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './rackParser.js';
 import { showToast } from './ui.js';
 
 let activeView = 'racks'; // 'racks' | 'sections' | 'products'
 let selectedRackId = null;
 let selectedSectionCode = null;
+let selectedSubSectionFilter = null; // null for All, or specific sub-section code
 
-// Cached data
-let currentRackConfigs = [];
+// In-memory runtime data derived dynamically on load
 let currentProductMaster = [];
-let rackProductIndex = new Map(); // rackId -> { products: Set(p), sections: Map(code -> [p]) }
+let rackIndex = new Map(); // rackId -> RackData
+let unassignedProductsList = []; // Products with missing or unparseable rack strings
 
 /**
  * Main entry point called when Rack Map tab is opened
@@ -30,16 +33,13 @@ export async function loadRackMap() {
   if (!container) return;
 
   try {
-    // 1. Fetch live products from IndexedDB (Product Master)
+    // 1. Fetch live products from IndexedDB (Product Master - Single Source of Truth)
     currentProductMaster = (await getAllProducts()) || [];
 
-    // 2. Fetch rack configurations from IndexedDB
-    currentRackConfigs = await getRackConfigs();
+    // 2. Build 100% automatic dynamic index directly from Product Master
+    buildAutomaticRackIndex();
 
-    // 3. Index products by rack and section
-    buildRackProductIndex();
-
-    // 4. Render active view
+    // 3. Render active view
     renderCurrentView();
   } catch (err) {
     console.error('Failed to load Rack Map:', err);
@@ -48,47 +48,179 @@ export async function loadRackMap() {
 }
 
 /**
- * Build fast lookup map from current Product Master
+ * Build 100% automatic Rack, Section, and Sub-section index from Product Master
  */
-function buildRackProductIndex() {
-  rackProductIndex.clear();
+function buildAutomaticRackIndex() {
+  rackIndex.clear();
+  unassignedProductsList = [];
 
-  // Initialize index for all configured racks
-  currentRackConfigs.forEach(rack => {
-    rackProductIndex.set(rack.id, {
+  // 1. Seed index with the 71 standard predefined active racks (R1–R73 excluding R12 and R64)
+  INITIAL_RACKS_SPEC.forEach(spec => {
+    const rackId = `R${spec.num}`;
+    const predefinedSecCodes = generateSections(spec.range[0], spec.range[1]).map(s => s.code);
+    
+    rackIndex.set(rackId, {
+      id: rackId,
+      rackNum: spec.num,
+      name: `Rack ${spec.num}`,
+      sectionStart: spec.range[0],
+      sectionEnd: spec.range[1],
+      isDynamic: false,
       allProducts: [],
-      sectionMap: new Map() // code -> array of products
+      sectionMap: new Map(), // code -> SectionData
+      unassignedSectionProducts: []
+    });
+
+    // Pre-populate predefined sections
+    const rData = rackIndex.get(rackId);
+    predefinedSecCodes.forEach(code => {
+      rData.sectionMap.set(code, {
+        code,
+        products: [],
+        subSectionMap: new Map() // subCode -> { code, products: [], totalQty: 0 }
+      });
     });
   });
 
-  // Distribute products into racks and sections
+  // 2. Distribute products from Product Master into Racks, Sections, and Sub-sections
   currentProductMaster.forEach(product => {
-    if (!product.rack) return;
-    const parsed = parseProductRack(product.rack);
-    if (!parsed) return;
+    if (!product.rack || !String(product.rack).trim()) {
+      unassignedProductsList.push({
+        ...product,
+        unassignedReason: 'No rack specified in Product Master'
+      });
+      return;
+    }
 
-    // Normalize rack key (e.g. R1, R66)
+    const parsed = parseProductRack(product.rack);
+    if (!parsed) {
+      unassignedProductsList.push({
+        ...product,
+        unassignedReason: `Unrecognized rack format: "${product.rack}"`
+      });
+      return;
+    }
+
     const rackId = parsed.rackId;
 
-    if (!rackProductIndex.has(rackId)) {
-      // Dynamic rack found in products that might not be in standard 71
-      rackProductIndex.set(rackId, {
+    // If rack is dynamic (not in standard 71), create dynamic entry
+    if (!rackIndex.has(rackId)) {
+      rackIndex.set(rackId, {
+        id: rackId,
+        rackNum: parsed.rackNum,
+        name: `Rack ${parsed.rackNum}`,
+        sectionStart: parsed.sections[0] || 'A',
+        sectionEnd: parsed.sections[parsed.sections.length - 1] || 'Z',
+        isDynamic: true,
         allProducts: [],
-        sectionMap: new Map()
+        sectionMap: new Map(),
+        unassignedSectionProducts: []
       });
     }
 
-    const rackData = rackProductIndex.get(rackId);
+    const rackData = rackIndex.get(rackId);
     rackData.allProducts.push(product);
 
-    // Add to each section listed (e.g. R-60 N & P belongs to both N and P)
-    parsed.sections.forEach(secCode => {
+    // If no recognizable section in rack string (e.g. product specifies just "R-5")
+    if (!parsed.hasRecognizableSection) {
+      rackData.unassignedSectionProducts.push({
+        ...product,
+        allocatedQty: getNumericStock(product.stockQty),
+        subSection: null,
+        isDistributed: false
+      });
+      return;
+    }
+
+    // Distribute stock quantity evenly across recognized physical locations
+    const totalStock = getNumericStock(product.stockQty);
+    const locations = parsed.locations || [];
+    const numLocations = locations.length;
+
+    if (numLocations > 1) {
+      const distributedQtys = distributeQuantityAcrossSections(totalStock, numLocations);
+
+      locations.forEach((loc, idx) => {
+        const secCode = loc.section;
+        const subCode = loc.subSection || null;
+        const allocatedQty = distributedQtys[idx];
+
+        if (!rackData.sectionMap.has(secCode)) {
+          rackData.sectionMap.set(secCode, {
+            code: secCode,
+            products: [],
+            subSectionMap: new Map()
+          });
+        }
+
+        const secData = rackData.sectionMap.get(secCode);
+        const itemRecord = {
+          ...product,
+          allocatedQty,
+          subSection: subCode,
+          isDistributed: true,
+          distributionInfo: {
+            totalQty: totalStock,
+            allLocations: locations.map(l => l.label || l.section),
+            currentLocation: loc.label || loc.section,
+            allQuantities: distributedQtys
+          }
+        };
+
+        secData.products.push(itemRecord);
+
+        // Sub-section tracking if sub-section exists (e.g. A1 -> subSection '1')
+        if (subCode) {
+          if (!secData.subSectionMap.has(subCode)) {
+            secData.subSectionMap.set(subCode, {
+              code: subCode,
+              products: []
+            });
+          }
+          secData.subSectionMap.get(subCode).products.push(itemRecord);
+        }
+      });
+    } else {
+      // Single physical location
+      const loc = locations[0] || { section: parsed.sections[0], subSection: null };
+      const secCode = loc.section;
+      const subCode = loc.subSection || null;
+
       if (!rackData.sectionMap.has(secCode)) {
-        rackData.sectionMap.set(secCode, []);
+        rackData.sectionMap.set(secCode, {
+          code: secCode,
+          products: [],
+          subSectionMap: new Map()
+        });
       }
-      rackData.sectionMap.get(secCode).push(product);
-    });
+
+      const secData = rackData.sectionMap.get(secCode);
+      const itemRecord = {
+        ...product,
+        allocatedQty: totalStock,
+        subSection: subCode,
+        isDistributed: false
+      };
+
+      secData.products.push(itemRecord);
+
+      if (subCode) {
+        if (!secData.subSectionMap.has(subCode)) {
+          secData.subSectionMap.set(subCode, {
+            code: subCode,
+            products: []
+          });
+        }
+        secData.subSectionMap.get(subCode).products.push(itemRecord);
+      }
+    }
   });
+}
+
+function getNumericStock(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  const num = Number(val);
+  return isNaN(num) ? 0 : num;
 }
 
 /**
@@ -106,30 +238,29 @@ function renderCurrentView() {
     activeView = 'racks';
     selectedRackId = null;
     selectedSectionCode = null;
+    selectedSubSectionFilter = null;
     renderAllRacksView(container);
   }
 }
 
 /**
  * ----------------------------------------------------------------------------
- * VIEW 1: ALL RACKS GRID (71 Active Racks)
+ * VIEW 1: ALL RACKS GRID (Dynamic Rack Map Reference)
  * ----------------------------------------------------------------------------
  */
 function renderAllRacksView(container) {
-  // Calculate total products and total quantity across all racks
+  // Compute overall shop totals at render time
   let totalMappedProducts = 0;
   let totalMappedQuantity = 0;
 
-  for (const rackData of rackProductIndex.values()) {
-    totalMappedProducts += rackData.allProducts.length;
-    for (const p of rackData.allProducts) {
-      const q = Number(p.stockQty);
-      if (!isNaN(q) && q > 0) totalMappedQuantity += q;
-    }
-  }
+  const rackList = Array.from(rackIndex.values()).sort((a, b) => a.rackNum - b.rackNum);
 
-  // Filter out archived racks for display
-  const activeRacks = currentRackConfigs.filter(r => !r.archived);
+  rackList.forEach(rack => {
+    totalMappedProducts += rack.allProducts.length;
+    rack.allProducts.forEach(p => {
+      totalMappedQuantity += getNumericStock(p.stockQty);
+    });
+  });
 
   container.innerHTML = `
     <!-- Top Header & Summary -->
@@ -141,20 +272,15 @@ function renderAllRacksView(container) {
               <span>🗺️ Shop Rack Map</span>
             </h2>
             <span class="text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">
-              ${activeRacks.length} Active Racks
+              ${rackList.length} Racks
+            </span>
+            <span class="text-[11px] font-semibold px-2 py-0.5 bg-sky-100 text-sky-800 rounded">
+              Automatic Live Map
             </span>
           </div>
           <p class="text-xs text-slate-500 mt-1">
-            Physical shop floor shelves and storage bays. Select a rack to inspect its sections and items.
+            Physical shop floor layout automatically generated from current Product Master data.
           </p>
-        </div>
-
-        <div class="flex items-center gap-2.5">
-          <button type="button" id="btn-open-manage-racks"
-            class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold border border-slate-300 transition flex items-center gap-1.5 shadow-2xs">
-            <span>⚙️</span>
-            <span>Manage Racks</span>
-          </button>
         </div>
       </div>
 
@@ -162,10 +288,10 @@ function renderAllRacksView(container) {
       <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
           <div class="text-slate-500 font-medium">Active Racks</div>
-          <div class="text-base font-extrabold text-slate-900 mt-0.5">${activeRacks.length}</div>
+          <div class="text-base font-extrabold text-slate-900 mt-0.5">${rackList.length}</div>
         </div>
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-          <div class="text-slate-500 font-medium">Total Products</div>
+          <div class="text-slate-500 font-medium">Mapped Products</div>
           <div class="text-base font-extrabold text-emerald-700 mt-0.5">${totalMappedProducts.toLocaleString()}</div>
         </div>
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1">
@@ -174,35 +300,52 @@ function renderAllRacksView(container) {
         </div>
       </div>
 
-      <!-- Quick Rack Filter / Jump Input -->
+      <!-- Quick Rack Filter / Search -->
       <div class="mt-4">
         <div class="relative">
           <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400 text-sm">
             🔎
           </span>
           <input type="text" id="rack-list-filter-input"
-            placeholder="Filter by Rack number (e.g. 1, 66, R60)..."
+            placeholder="Filter by Rack number (e.g. 1, 15, 60, 72)..."
             class="w-full text-xs sm:text-sm pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
         </div>
       </div>
     </div>
 
-    <!-- 71 Racks Responsive Grid -->
+    <!-- Racks Responsive Grid -->
     <div id="racks-grid-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
       <!-- Injected rack cards -->
     </div>
+
+    <!-- Unassigned Products Drawer (Only if items cannot be matched to a rack number) -->
+    ${unassignedProductsList.length > 0 ? `
+      <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">⚠️</span>
+          <div>
+            <div class="font-bold text-amber-900">${unassignedProductsList.length} item(s) without valid Rack numbers</div>
+            <div class="text-[11px] text-amber-700 mt-0.5">These products have missing or unrecognized rack fields in the Product Master.</div>
+          </div>
+        </div>
+        <button type="button" id="btn-view-unassigned-racks"
+          class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition self-start sm:self-auto shrink-0">
+          View Unassigned Items (${unassignedProductsList.length})
+        </button>
+      </div>
+    ` : ''}
   `;
 
   // Render rack cards
   const gridContainer = container.querySelector('#racks-grid-container');
-  renderRackCards(gridContainer, activeRacks);
+  renderRackCards(gridContainer, rackList);
 
-  // Bind filter input
+  // Filter input handler
   const filterInput = container.querySelector('#rack-list-filter-input');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
       const q = e.target.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const filtered = activeRacks.filter(r => {
+      const filtered = rackList.filter(r => {
         if (!q) return true;
         const rIdClean = r.id.toUpperCase();
         const rNum = String(r.rackNum);
@@ -212,13 +355,14 @@ function renderAllRacksView(container) {
     });
   }
 
-  // Bind Manage Racks modal trigger
-  const btnManage = container.querySelector('#btn-open-manage-racks');
-  if (btnManage) {
-    btnManage.addEventListener('click', () => {
-      import('./mapManager.js').then(m => m.openManageMapsModal('racks'));
-    });
-  }
+  // View unassigned items handler
+  container.querySelector('#btn-view-unassigned-racks')?.addEventListener('click', () => {
+    selectedRackId = '_UNASSIGNED_';
+    selectedSectionCode = '_UNASSIGNED_';
+    activeView = 'products';
+    renderCurrentView();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
 }
 
 function renderRackCards(container, racks) {
@@ -227,23 +371,21 @@ function renderRackCards(container, racks) {
   if (racks.length === 0) {
     container.innerHTML = `
       <div class="col-span-full text-center py-10 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs">
-        No racks match your filter.
+        No racks match your search.
       </div>
     `;
     return;
   }
 
   container.innerHTML = racks.map(rack => {
-    const rackData = rackProductIndex.get(rack.id) || { allProducts: [], sectionMap: new Map() };
-    const prodCount = rackData.allProducts.length;
+    const prodCount = rack.allProducts.length;
     let qtySum = 0;
-    rackData.allProducts.forEach(p => {
-      const q = Number(p.stockQty);
-      if (!isNaN(q) && q > 0) qtySum += q;
+    rack.allProducts.forEach(p => {
+      qtySum += getNumericStock(p.stockQty);
     });
 
-    const configuredSectionCount = (rack.sections || []).filter(s => !s.archived).length;
-    const hasUnassigned = rackData.sectionMap.has(UNASSIGNED_SECTION_CODE);
+    // Count sections with products or total defined sections
+    const sectionCount = rack.sectionMap.size;
 
     return `
       <button type="button" data-rack-select="${rack.id}"
@@ -258,7 +400,7 @@ function renderRackCards(container, racks) {
             </span>
           </div>
           <div class="text-[11px] text-slate-500 mt-1">
-            ${configuredSectionCount} sections ${hasUnassigned ? '<span class="text-amber-600 font-bold" title="Has unassigned items">⚠</span>' : ''}
+            ${sectionCount} sections
           </div>
         </div>
 
@@ -287,23 +429,21 @@ function renderRackCards(container, racks) {
  * ----------------------------------------------------------------------------
  */
 function renderRackSectionsView(container) {
-  const rack = currentRackConfigs.find(r => r.id === selectedRackId);
+  const rack = rackIndex.get(selectedRackId);
   if (!rack) {
     activeView = 'racks';
     renderCurrentView();
     return;
   }
 
-  const rackData = rackProductIndex.get(rack.id) || { allProducts: [], sectionMap: new Map() };
-  const prodCount = rackData.allProducts.length;
+  const prodCount = rack.allProducts.length;
   let qtySum = 0;
-  rackData.allProducts.forEach(p => {
-    const q = Number(p.stockQty);
-    if (!isNaN(q) && q > 0) qtySum += q;
+  rack.allProducts.forEach(p => {
+    qtySum += getNumericStock(p.stockQty);
   });
 
-  const activeSections = (rack.sections || []).filter(s => !s.archived);
-  const unassignedProducts = rackData.sectionMap.get(UNASSIGNED_SECTION_CODE) || [];
+  const sectionsList = Array.from(rack.sectionMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+  const unassignedSecItems = rack.unassignedSectionProducts || [];
 
   container.innerHTML = `
     <!-- Header with Breadcrumbs -->
@@ -325,26 +465,19 @@ function renderRackSectionsView(container) {
             </span>
           </h2>
           <p class="text-xs text-slate-500 mt-1">
-            Select a section shelf to view products stored in this physical position.
+            Select a section to inspect products and sub-sections stored at this location.
           </p>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button type="button" id="btn-add-section-to-rack"
-            class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs">
-            <span>+ Add Section</span>
-          </button>
         </div>
       </div>
 
       <!-- Dynamic Totals Banner -->
       <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-          <div class="text-slate-500 font-medium">Configured Sections</div>
-          <div class="text-base font-extrabold text-slate-900 mt-0.5">${activeSections.length}</div>
+          <div class="text-slate-500 font-medium">Sections Detected</div>
+          <div class="text-base font-extrabold text-slate-900 mt-0.5">${sectionsList.length}</div>
         </div>
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80">
-          <div class="text-slate-500 font-medium">Total Products</div>
+          <div class="text-slate-500 font-medium">Mapped Products</div>
           <div class="text-base font-extrabold text-emerald-700 mt-0.5">${prodCount}</div>
         </div>
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1">
@@ -354,38 +487,38 @@ function renderRackSectionsView(container) {
       </div>
     </div>
 
-    <!-- Unassigned Products Alert Banner if present -->
-    ${unassignedProducts.length > 0 ? `
+    <!-- Notice if items specify this rack but lack section letter -->
+    ${unassignedSecItems.length > 0 ? `
       <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex items-center gap-2.5">
           <span class="text-xl">⚠️</span>
           <div>
             <div class="text-xs font-bold text-amber-900">
-              ${unassignedProducts.length} Product(s) with Unassigned Section
+              ${unassignedSecItems.length} item(s) specify ${rack.name || rack.id} without a section letter
             </div>
             <div class="text-[11px] text-amber-700">
-              These items specify ${rack.name || rack.id} but lack an exact section letter.
+              e.g. Raw rack field is "${escapeHtml(unassignedSecItems[0]?.rack || '')}"
             </div>
           </div>
         </div>
         <button type="button" data-section-select="${UNASSIGNED_SECTION_CODE}"
           class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition self-start sm:self-auto">
-          Review Unassigned Items (${unassignedProducts.length})
+          View Unassigned Items (${unassignedSecItems.length})
         </button>
       </div>
     ` : ''}
 
     <!-- Sections Grid -->
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-      ${activeSections.map(sec => {
-        const secProds = rackData.sectionMap.get(sec.code) || [];
+      ${sectionsList.map(sec => {
+        const secProds = sec.products || [];
         const sCount = secProds.length;
         let sQty = 0;
         secProds.forEach(p => {
-          const q = Number(p.stockQty);
-          if (!isNaN(q) && q > 0) sQty += q;
+          sQty += getNumericStock(p.allocatedQty);
         });
-        const subCount = (sec.subSections || []).filter(sub => !sub.archived).length;
+
+        const subSecCount = sec.subSectionMap.size;
 
         return `
           <button type="button" data-section-select="${sec.code}"
@@ -393,12 +526,12 @@ function renderRackSectionsView(container) {
             <div>
               <div class="flex items-center justify-between">
                 <span class="font-mono font-extrabold text-lg text-slate-900 group-hover:text-emerald-700">
-                  ${sec.code}
+                  Section ${sec.code}
                 </span>
-                ${subCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">${subCount} sub</span>` : ''}
+                ${subSecCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">${subSecCount} sub</span>` : ''}
               </div>
-              <div class="text-[11px] text-slate-600 font-medium truncate mt-1" title="${escapeHtml(sec.displayName || '')}">
-                ${sec.displayName ? escapeHtml(sec.displayName) : '<span class="text-slate-400 italic">No name</span>'}
+              <div class="text-[11px] text-slate-500 mt-1">
+                ${subSecCount > 0 ? `${subSecCount} sub-section(s)` : 'Direct bay'}
               </div>
             </div>
 
@@ -417,6 +550,7 @@ function renderRackSectionsView(container) {
     activeView = 'racks';
     selectedRackId = null;
     selectedSectionCode = null;
+    selectedSubSectionFilter = null;
     renderCurrentView();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -425,48 +559,52 @@ function renderRackSectionsView(container) {
   container.querySelectorAll('[data-section-select]').forEach(btn => {
     btn.addEventListener('click', () => {
       selectedSectionCode = btn.dataset.sectionSelect;
+      selectedSubSectionFilter = null;
       activeView = 'products';
       renderCurrentView();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   });
-
-  // Bind add section button
-  container.querySelector('#btn-add-section-to-rack')?.addEventListener('click', () => {
-    import('./mapManager.js').then(m => m.promptAddSection('rack', rack.id));
-  });
 }
 
 /**
  * ----------------------------------------------------------------------------
- * VIEW 3: SECTION PRODUCTS VIEW
+ * VIEW 3: SECTION & SUB-SECTIONS PRODUCTS VIEW
  * ----------------------------------------------------------------------------
  */
 function renderSectionProductsView(container) {
-  const rack = currentRackConfigs.find(r => r.id === selectedRackId);
+  // Handle viewing general unassigned products list
+  if (selectedRackId === '_UNASSIGNED_') {
+    renderGlobalUnassignedView(container);
+    return;
+  }
+
+  const rack = rackIndex.get(selectedRackId);
   if (!rack) {
     activeView = 'racks';
     renderCurrentView();
     return;
   }
 
-  const isUnassigned = selectedSectionCode === UNASSIGNED_SECTION_CODE;
-  const section = isUnassigned
-    ? { code: 'Unassigned', displayName: 'Unassigned Location (Needs Review)', subSections: [] }
-    : (rack.sections || []).find(s => s.code === selectedSectionCode) || { code: selectedSectionCode, displayName: '', subSections: [] };
+  const isUnassignedSection = selectedSectionCode === UNASSIGNED_SECTION_CODE;
+  const secData = isUnassignedSection
+    ? { code: 'Unassigned', products: rack.unassignedSectionProducts || [], subSectionMap: new Map() }
+    : (rack.sectionMap.get(selectedSectionCode) || { code: selectedSectionCode, products: [], subSectionMap: new Map() });
 
-  const rackData = rackProductIndex.get(rack.id) || { allProducts: [], sectionMap: new Map() };
-  const products = rackData.sectionMap.get(selectedSectionCode) || [];
+  const allSectionProducts = secData.products || [];
+  const subSectionEntries = Array.from(secData.subSectionMap.entries()).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+
+  // Filter products by selected sub-section if active
+  const displayedProducts = selectedSubSectionFilter
+    ? allSectionProducts.filter(p => p.subSection === selectedSubSectionFilter)
+    : allSectionProducts;
 
   // Dynamic totals
-  const totalProducts = products.length;
+  const totalProducts = allSectionProducts.length;
   let totalQuantity = 0;
-  products.forEach(p => {
-    const q = Number(p.stockQty);
-    if (!isNaN(q) && q > 0) totalQuantity += q;
+  allSectionProducts.forEach(p => {
+    totalQuantity += getNumericStock(p.allocatedQty);
   });
-
-  const activeSubSections = (section.subSections || []).filter(s => !s.archived);
 
   container.innerHTML = `
     <!-- Header with Breadcrumbs -->
@@ -480,52 +618,24 @@ function renderSectionProductsView(container) {
           ${rack.name || rack.id}
         </button>
         <span>/</span>
-        <span class="font-mono font-bold text-slate-700">Section ${section.code}</span>
+        <span class="font-mono font-bold text-slate-700">
+          ${isUnassignedSection ? 'Unassigned Section' : `Section ${secData.code}`}
+        </span>
       </div>
 
-      <!-- Section Title & Rename -->
+      <!-- Section Title -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
         <div>
           <div class="flex items-center gap-2">
             <h2 class="text-xl font-extrabold text-slate-900 font-mono">
-              ${rack.name || rack.id} — Section ${section.code}
+              ${rack.name || rack.id} — ${isUnassignedSection ? 'Unassigned Section' : `Section ${secData.code}`}
             </h2>
-            ${!isUnassigned ? `
-              <button type="button" id="btn-rename-section"
-                class="px-2 py-1 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md transition flex items-center gap-1">
-                <span>✏️ Rename</span>
-              </button>
-            ` : ''}
           </div>
-
-          <!-- Editable Display Name -->
-          <div class="text-sm font-semibold text-emerald-700 mt-1">
-            ${section.displayName ? escapeHtml(section.displayName) : '<span class="text-slate-400 font-normal italic">No display name assigned (e.g. "AIR FILTER DREAM YUGA")</span>'}
+          <div class="text-xs text-slate-500 mt-1">
+            Dynamic stock reference derived directly from Product Master.
           </div>
         </div>
-
-        ${!isUnassigned ? `
-          <button type="button" id="btn-add-subsection"
-            class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-2xs self-start sm:self-auto">
-            <span>+ Add Sub-section</span>
-          </button>
-        ` : ''}
       </div>
-
-      <!-- Sub-sections List if any -->
-      ${activeSubSections.length > 0 ? `
-        <div class="pt-3 pb-1 flex flex-wrap items-center gap-2 text-xs">
-          <span class="text-slate-400 font-semibold text-[11px]">Sub-sections:</span>
-          ${activeSubSections.map(sub => `
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 border border-slate-200 font-medium">
-              <span class="font-bold font-mono text-emerald-800">${sub.code || sub.id}</span>
-              ${sub.displayName ? `<span>• ${escapeHtml(sub.displayName)}</span>` : ''}
-              <button type="button" data-rename-sub="${sub.id}" class="text-slate-400 hover:text-slate-800 font-bold" title="Rename Sub-section">✏️</button>
-              <button type="button" data-archive-sub="${sub.id}" class="text-slate-400 hover:text-rose-600 font-bold" title="Archive Sub-section">✕</button>
-            </span>
-          `).join('')}
-        </div>
-      ` : ''}
 
       <!-- Dynamic Totals Banner -->
       <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
@@ -538,21 +648,50 @@ function renderSectionProductsView(container) {
           <div class="text-base font-extrabold text-emerald-700 mt-0.5">${totalQuantity}</div>
         </div>
         <div class="p-3 bg-slate-50 rounded-xl border border-slate-200/80 col-span-2 sm:col-span-1">
-          <div class="text-slate-500 font-medium">Source Authority</div>
-          <div class="text-xs font-bold text-slate-700 mt-1">Product Master (Live)</div>
+          <div class="text-slate-500 font-medium">Sub-sections Detected</div>
+          <div class="text-base font-extrabold text-slate-900 mt-0.5">${subSectionEntries.length}</div>
         </div>
       </div>
+
+      <!-- Sub-sections Filter Pills (if sub-sections exist) -->
+      ${subSectionEntries.length > 0 ? `
+        <div class="mt-4 pt-3 border-t border-slate-100">
+          <div class="text-[11px] font-bold text-slate-600 mb-2">Filter by Sub-section:</div>
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" data-sub-filter=""
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition ${selectedSubSectionFilter === null ? 'bg-slate-900 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}">
+              All (${totalProducts} items • Qty: ${totalQuantity})
+            </button>
+            ${subSectionEntries.map(([subCode, subInfo]) => {
+              const subProds = subInfo.products || [];
+              let subQty = 0;
+              subProds.forEach(p => { subQty += getNumericStock(p.allocatedQty); });
+              const isSelected = selectedSubSectionFilter === subCode;
+
+              return `
+                <button type="button" data-sub-filter="${escapeHtml(subCode)}"
+                  class="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${isSelected ? 'bg-emerald-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}">
+                  <span>Sub-section ${escapeHtml(subCode)}</span>
+                  <span class="text-[10px] opacity-80">(${subProds.length} • Qty: ${subQty})</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
     </div>
 
-    <!-- Products List (Dual-View: Desktop Table, Mobile Cards) -->
+    <!-- Products List (Desktop Table & Mobile Cards) -->
     <div class="space-y-3">
       <div class="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
-        <span>Products in this Section (${totalProducts})</span>
+        <span>
+          Products in this Location (${displayedProducts.length}${selectedSubSectionFilter ? ` in Sub-section ${selectedSubSectionFilter}` : ''})
+        </span>
       </div>
 
-      ${totalProducts === 0 ? `
+      ${displayedProducts.length === 0 ? `
         <div class="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 text-xs">
-          No products currently assigned to <b>${rack.name || rack.id} / Section ${section.code}</b> in Product Master.
+          No products currently located in this position.
         </div>
       ` : `
         <!-- Desktop Table View -->
@@ -564,23 +703,38 @@ function renderSectionProductsView(container) {
                 <th class="px-3 py-2.5 min-w-[240px]">Product Name / Item Details</th>
                 <th class="px-3 py-2.5">Part Number</th>
                 <th class="px-3 py-2.5">Group</th>
+                <th class="px-3 py-2.5 text-center">Sub-section</th>
                 <th class="px-3 py-2.5 text-center">Available Qty</th>
                 <th class="px-3 py-2.5 text-center">Unit</th>
                 <th class="px-3 py-2.5 text-right">MRP</th>
+                <th class="px-3 py-2.5 text-center">Rack Field</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-800">
-              ${products.map((p, idx) => {
-                const qty = (p.stockQty !== null && p.stockQty !== undefined && p.stockQty !== '') ? Number(p.stockQty) : 0;
+              ${displayedProducts.map((p, idx) => {
+                const qty = getNumericStock(p.allocatedQty);
                 return `
                   <tr class="hover:bg-slate-50/80 transition">
                     <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
-                    <td class="px-3 py-2 font-bold text-slate-900">${escapeHtml(p.productName || p.itemDetails || '-')}</td>
+                    <td class="px-3 py-2 font-bold text-slate-900">
+                      <div>${escapeHtml(p.productName || p.itemDetails || '-')}</div>
+                      ${p.isDistributed ? `
+                        <div class="text-[10px] font-normal text-amber-700 bg-amber-50 inline-block px-1.5 py-0.5 rounded border border-amber-200 mt-0.5">
+                          Distributed: ${qty} of ${p.distributionInfo.totalQty} across ${p.distributionInfo.allLocations.join(', ')}
+                        </div>
+                      ` : ''}
+                    </td>
                     <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
                     <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
-                    <td class="px-3 py-2 text-center font-extrabold ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'}">${qty}</td>
+                    <td class="px-3 py-2 text-center font-mono">
+                      ${p.subSection ? `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">Sub ${escapeHtml(p.subSection)}</span>` : '<span class="text-slate-400">-</span>'}
+                    </td>
+                    <td class="px-3 py-2 text-center font-extrabold ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'}">
+                      ${qty}
+                    </td>
                     <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
                     <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</td>
+                    <td class="px-3 py-2 text-center font-mono text-slate-500">${escapeHtml(p.rack || '-')}</td>
                   </tr>
                 `;
               }).join('')}
@@ -590,21 +744,27 @@ function renderSectionProductsView(container) {
 
         <!-- Mobile Cards View -->
         <div class="responsive-card-view space-y-2.5">
-          ${products.map((p, idx) => {
-            const qty = (p.stockQty !== null && p.stockQty !== undefined && p.stockQty !== '') ? Number(p.stockQty) : 0;
+          ${displayedProducts.map(p => {
+            const qty = getNumericStock(p.allocatedQty);
             return `
               <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
                 <div class="flex items-start justify-between gap-2">
                   <div class="font-bold text-xs text-slate-900 leading-tight">
                     ${escapeHtml(p.productName || p.itemDetails || '-')}
+                    ${p.isDistributed ? `
+                      <div class="text-[10px] font-normal text-amber-700 bg-amber-50 inline-block px-1.5 py-0.5 rounded border border-amber-200 mt-1">
+                        Distributed: ${qty} of ${p.distributionInfo.totalQty} across ${p.distributionInfo.allLocations.join(', ')}
+                      </div>
+                    ` : ''}
                   </div>
-                  <div class="font-mono font-extrabold text-xs ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'} shrink-0">
+                  <div class="font-mono font-extrabold text-xs ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'} shrink-0 text-right">
                     Qty: ${qty}
                   </div>
                 </div>
 
                 <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
                   <span class="font-mono font-semibold text-slate-700">${escapeHtml(p.partNumber || '-')}</span>
+                  ${p.subSection ? `<span class="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 font-bold font-mono">Sub ${escapeHtml(p.subSection)}</span>` : ''}
                   <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">${escapeHtml(p.group || p.parentGroup || '-')}</span>
                   <span class="font-mono font-bold text-slate-900">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</span>
                 </div>
@@ -621,6 +781,7 @@ function renderSectionProductsView(container) {
     activeView = 'racks';
     selectedRackId = null;
     selectedSectionCode = null;
+    selectedSubSectionFilter = null;
     renderCurrentView();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -628,111 +789,86 @@ function renderSectionProductsView(container) {
   container.querySelector('#btn-back-to-rack-sections')?.addEventListener('click', () => {
     activeView = 'sections';
     selectedSectionCode = null;
+    selectedSubSectionFilter = null;
     renderCurrentView();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  // Rename section display name handler
-  container.querySelector('#btn-rename-section')?.addEventListener('click', () => {
-    promptRenameSectionDisplayName(rack, section.code);
-  });
-
-  // Add sub-section handler
-  container.querySelector('#btn-add-subsection')?.addEventListener('click', () => {
-    promptAddSubSection(rack, section.code);
-  });
-
-  // Sub-section rename & archive handlers
-  container.querySelectorAll('[data-rename-sub]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const subId = btn.dataset.renameSub;
-      promptRenameSubSection(rack, section.code, subId);
-    });
-  });
-
-  container.querySelectorAll('[data-archive-sub]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const subId = btn.dataset.archiveSub;
-      archiveSubSection(rack, section.code, subId);
+  // Sub-section filter pills handlers
+  container.querySelectorAll('[data-sub-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const filterVal = btn.dataset.subFilter;
+      selectedSubSectionFilter = filterVal || null;
+      renderCurrentView();
     });
   });
 }
 
 /**
- * ----------------------------------------------------------------------------
- * SECTION & SUB-SECTION CRUD ACTIONS
- * ----------------------------------------------------------------------------
+ * Dedicated view for products where rack number could not be determined at all
  */
-async function promptRenameSectionDisplayName(rack, sectionCode) {
-  const sec = (rack.sections || []).find(s => s.code === sectionCode);
-  if (!sec) return;
+function renderGlobalUnassignedView(container) {
+  container.innerHTML = `
+    <div class="bg-white rounded-xl shadow-xs border border-slate-200 p-5 sm:p-6 transition">
+      <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
+        <button type="button" id="btn-back-to-all-racks" class="hover:text-slate-900 font-bold text-emerald-700">
+          ← All Racks
+        </button>
+        <span>/</span>
+        <span class="font-bold text-amber-800">Unassigned Products</span>
+      </div>
 
-  const current = sec.displayName || '';
-  const newName = prompt(`Enter display name for ${rack.name || rack.id} Section ${sectionCode}:\n(e.g. "AIR FILTER DREAM YUGA")`, current);
+      <div class="pb-4 border-b border-slate-100">
+        <h2 class="text-xl font-extrabold text-slate-900 flex items-center gap-2">
+          <span>⚠️ Unassigned Storage Locations</span>
+          <span class="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-normal">
+            ${unassignedProductsList.length} items
+          </span>
+        </h2>
+        <p class="text-xs text-slate-500 mt-1">
+          These products do not have a valid Rack number (e.g. R-1 to R-73) specified in their uploaded Product Master record.
+        </p>
+      </div>
+    </div>
 
-  if (newName === null) return; // Cancelled
-  sec.displayName = newName.trim();
+    <div class="responsive-table-view bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+      <table class="w-full text-left text-xs border-collapse">
+        <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+          <tr>
+            <th class="px-3 py-2.5 w-12 text-center">#</th>
+            <th class="px-3 py-2.5">Product Name / Item Details</th>
+            <th class="px-3 py-2.5">Part Number</th>
+            <th class="px-3 py-2.5">Group</th>
+            <th class="px-3 py-2.5 text-center">Current Rack Value</th>
+            <th class="px-3 py-2.5 text-center">Stock Qty</th>
+            <th class="px-3 py-2.5 text-right">MRP</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 text-slate-800">
+          ${unassignedProductsList.map((p, idx) => `
+            <tr class="hover:bg-slate-50/80 transition">
+              <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
+              <td class="px-3 py-2 font-bold text-slate-900">${escapeHtml(p.productName || p.itemDetails || '-')}</td>
+              <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
+              <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
+              <td class="px-3 py-2 text-center font-mono text-amber-800 font-bold">${escapeHtml(p.rack || '(empty)')}</td>
+              <td class="px-3 py-2 text-center font-bold">${getNumericStock(p.stockQty)}</td>
+              <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 
-  await saveRackConfig(rack);
-  showToast(`Section ${sectionCode} updated to "${sec.displayName || 'No name'}"`, 'success');
-  renderCurrentView();
-}
-
-async function promptAddSubSection(rack, sectionCode) {
-  const sec = (rack.sections || []).find(s => s.code === sectionCode);
-  if (!sec) return;
-
-  if (!sec.subSections) sec.subSections = [];
-
-  const existingCount = sec.subSections.length;
-  const defaultCode = `${sectionCode}-${existingCount + 1}`;
-  const code = prompt(`Enter Sub-section Code:\n(e.g. "${defaultCode}")`, defaultCode);
-  if (!code) return;
-
-  const displayName = prompt(`Enter Display Name for ${code} (optional):`, '');
-
-  sec.subSections.push({
-    id: `${rack.id}_${sectionCode}_${code.trim()}`,
-    code: code.trim(),
-    displayName: (displayName || '').trim(),
-    archived: false,
-    createdAt: Date.now()
+  container.querySelector('#btn-back-to-all-racks')?.addEventListener('click', () => {
+    activeView = 'racks';
+    selectedRackId = null;
+    selectedSectionCode = null;
+    selectedSubSectionFilter = null;
+    renderCurrentView();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
-
-  await saveRackConfig(rack);
-  showToast(`Sub-section ${code} added`, 'success');
-  renderCurrentView();
-}
-
-async function promptRenameSubSection(rack, sectionCode, subId) {
-  const sec = (rack.sections || []).find(s => s.code === sectionCode);
-  if (!sec || !sec.subSections) return;
-  const sub = sec.subSections.find(s => s.id === subId);
-  if (!sub) return;
-
-  const newName = prompt(`Enter new display name for Sub-section ${sub.code}:`, sub.displayName || '');
-  if (newName === null) return;
-
-  sub.displayName = newName.trim();
-  await saveRackConfig(rack);
-  showToast(`Sub-section ${sub.code} updated`, 'success');
-  renderCurrentView();
-}
-
-async function archiveSubSection(rack, sectionCode, subId) {
-  const sec = (rack.sections || []).find(s => s.code === sectionCode);
-  if (!sec || !sec.subSections) return;
-  const sub = sec.subSections.find(s => s.id === subId);
-  if (!sub) return;
-
-  if (!confirm(`Archive Sub-section ${sub.code}? It can be restored in Manage Maps.`)) return;
-
-  sub.archived = true;
-  await saveRackConfig(rack);
-  showToast(`Sub-section ${sub.code} archived`, 'info');
-  renderCurrentView();
 }
 
 function escapeHtml(str) {

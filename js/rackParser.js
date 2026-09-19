@@ -1,15 +1,18 @@
 /**
  * Rack String Parser for Maharashtra Automobile
- * Converts raw Product Master rack strings into normalized Rack IDs and Section Codes.
+ * Converts raw Product Master rack strings into normalized Rack IDs, Section Codes, and Sub-sections.
+ * 
+ * 100% Automatic Reference Layer Parser.
  *
  * Examples:
- *  'R-66 E'     => rackId: 'R66', rackNum: 66, sections: ['E'], hasRecognizableSection: true
- *  'R-60 N & P' => rackId: 'R60', rackNum: 60, sections: ['N', 'P'], hasRecognizableSection: true
- *  'R-1 G'      => rackId: 'R1',  rackNum: 1,  sections: ['G'], hasRecognizableSection: true
- *  'R1 B'       => rackId: 'R1',  rackNum: 1,  sections: ['B'], hasRecognizableSection: true
- *  'R2 C'       => rackId: 'R2',  rackNum: 2,  sections: ['C'], hasRecognizableSection: true
+ *  'R-60 A1'    => rackId: 'R60', rackNum: 60, sections: ['A'], locations: [{ section: 'A', subSection: '1', label: 'A1' }]
+ *  'R-60 B1'    => rackId: 'R60', rackNum: 60, sections: ['B'], locations: [{ section: 'B', subSection: '1', label: 'B1' }]
+ *  'R-60 C2'    => rackId: 'R60', rackNum: 60, sections: ['C'], locations: [{ section: 'C', subSection: '2', label: 'C2' }]
+ *  'R-60 D7'    => rackId: 'R60', rackNum: 60, sections: ['D'], locations: [{ section: 'D', subSection: '7', label: 'D7' }]
+ *  'R-15 ABC'   => rackId: 'R15', rackNum: 15, sections: ['A', 'B', 'C'], locations: [{ section: 'A' }, { section: 'B' }, { section: 'C' }]
+ *  'R-72 A & B' => rackId: 'R72', rackNum: 72, sections: ['A', 'B'], locations: [{ section: 'A' }, { section: 'B' }]
+ *  'R-72 N & P' => rackId: 'R72', rackNum: 72, sections: ['N', 'P'], locations: [{ section: 'N' }, { section: 'P' }]
  *  'R-5'        => rackId: 'R5',  rackNum: 5,  sections: ['_UNASSIGNED_'], hasRecognizableSection: false
- *  '1'          => rackId: 'R1',  rackNum: 1,  sections: ['_UNASSIGNED_'], hasRecognizableSection: false
  */
 
 export const UNASSIGNED_SECTION_CODE = '_UNASSIGNED_';
@@ -26,13 +29,13 @@ export function parseProductRack(rackStr) {
   let remaining = '';
 
   // Case 1: Standard prefix (R-, RACK, RACK-, R) followed by number
-  // e.g. R-66 E, R66 E, RACK-60 N & P, R-1 G
+  // e.g. R-66 E, R-60 A1, R66 E, RACK-60 N & P, R-1 G, R-15 ABC
   const prefixMatch = clean.match(/^(?:RACK[-_\s]*|R[-_\s]*)(\d+)(.*)$/i);
   if (prefixMatch) {
     rackNum = parseInt(prefixMatch[1], 10);
     remaining = (prefixMatch[2] || '').trim();
   } else {
-    // Case 2: Pure number at beginning e.g. "1", "3", "12 A"
+    // Case 2: Pure number at beginning e.g. "1", "3", "12 A", "60 A1"
     const numOnlyMatch = clean.match(/^(\d+)(.*)$/);
     if (numOnlyMatch) {
       rackNum = parseInt(numOnlyMatch[1], 10);
@@ -46,24 +49,71 @@ export function parseProductRack(rackStr) {
 
   const rackId = `R${rackNum}`;
 
-  // Parse sections from remaining text
-  // Look for single letters or letters separated by &, +, /, and, or, comma
-  // e.g. "E" -> ['E'], "N & P" -> ['N', 'P'], "A, B" -> ['A', 'B']
   const sections = [];
+  const locations = [];
 
   if (remaining) {
-    // Remove common extraneous words like "SEC", "SECTION", "BAY"
-    const cleanedRemaining = remaining
+    // Clean extraneous descriptors and connectors
+    let cleanedRemaining = remaining
       .replace(/SECTION|SEC|BAY/gi, ' ')
-      .replace(/[-_]/g, ' ')
+      .replace(/\bAND\b/gi, ' ')
+      .replace(/[&+,/]/g, ' ')
       .trim();
 
-    // Match individual uppercase letters separated by spaces or punctuation
-    const tokens = cleanedRemaining.split(/[\s,&+/]+/).filter(Boolean);
-    for (const token of tokens) {
-      if (/^[A-Z]$/.test(token)) {
-        if (!sections.includes(token)) {
-          sections.push(token);
+    // Check for range patterns like "A-C" or "A TO C"
+    const rangeMatch = cleanedRemaining.match(/^([A-Z])\s*(?:-|TO)\s*([A-Z])$/i);
+    // Check for sub-section ranges like "A1-A4" or "A1 TO A4"
+    const subRangeMatch = cleanedRemaining.match(/^([A-Z])(\d+)\s*(?:-|TO)\s*\1(\d+)$/i);
+
+    if (rangeMatch) {
+      const start = rangeMatch[1].toUpperCase().charCodeAt(0);
+      const end = rangeMatch[2].toUpperCase().charCodeAt(0);
+      if (start <= end && end - start <= 10) {
+        for (let code = start; code <= end; code++) {
+          const char = String.fromCharCode(code);
+          if (!sections.includes(char)) sections.push(char);
+          locations.push({ section: char, subSection: null, label: char });
+        }
+      }
+    } else if (subRangeMatch) {
+      const secLetter = subRangeMatch[1].toUpperCase();
+      const startSub = parseInt(subRangeMatch[2], 10);
+      const endSub = parseInt(subRangeMatch[3], 10);
+      if (startSub <= endSub && endSub - startSub <= 20) {
+        if (!sections.includes(secLetter)) sections.push(secLetter);
+        for (let s = startSub; s <= endSub; s++) {
+          locations.push({ section: secLetter, subSection: String(s), label: `${secLetter}${s}` });
+        }
+      }
+    } else {
+      // Split tokens by spaces or underscores
+      const tokens = cleanedRemaining.split(/[\s_]+/).filter(Boolean);
+
+      for (const token of tokens) {
+        // Pattern 1: Section + Sub-section e.g. A1, B1, C2, D7, A-1
+        const subSecMatch = token.match(/^([A-Z])[-_]?(\d+)$/);
+        if (subSecMatch) {
+          const sec = subSecMatch[1];
+          const sub = subSecMatch[2];
+          if (!sections.includes(sec)) sections.push(sec);
+          locations.push({ section: sec, subSection: sub, label: `${sec}${sub}` });
+          continue;
+        }
+
+        // Pattern 2: Single Section Letter e.g. A, B, C, N, P
+        if (/^[A-Z]$/.test(token)) {
+          if (!sections.includes(token)) sections.push(token);
+          locations.push({ section: token, subSection: null, label: token });
+          continue;
+        }
+
+        // Pattern 3: Contiguous letters e.g. ABC, DEF, AB
+        if (/^[A-Z]{2,6}$/.test(token)) {
+          for (const char of token) {
+            if (!sections.includes(char)) sections.push(char);
+            locations.push({ section: char, subSection: null, label: char });
+          }
+          continue;
         }
       }
     }
@@ -76,6 +126,59 @@ export function parseProductRack(rackStr) {
     rackNum,
     raw: clean,
     sections: hasRecognizableSection ? sections : [UNASSIGNED_SECTION_CODE],
+    locations: hasRecognizableSection ? locations : [{ section: UNASSIGNED_SECTION_CODE, subSection: null, label: 'Unassigned' }],
     hasRecognizableSection
   };
+}
+
+/**
+ * Distribute total quantity across multiple locations as evenly as possible.
+ * 
+ * Rules:
+ * - When ONE product has multiple locations (e.g. ABC -> 3 sections, A & B -> 2 sections, A1 A2 -> 2 sub-sections)
+ * - Distribute total quantity evenly.
+ * - Integer remainder is distributed +1 to the first locations.
+ * - SUM OF DISTRIBUTED QUANTITY MUST ALWAYS EQUAL ORIGINAL PRODUCT STOCK QUANTITY.
+ * 
+ * Examples:
+ * - 50 across 3 sections (R-15 ABC) -> [17, 17, 16] (Sum = 50)
+ * - 60 across 2 sections (R-72 A & B) -> [30, 30] (Sum = 60)
+ * - 10 across 4 locations -> [3, 3, 2, 2] (Sum = 10)
+ * - 40 across 2 locations -> [20, 20] (Sum = 40)
+ */
+export function distributeQuantityAcrossSections(totalQty, numSections) {
+  const n = numSections;
+  if (!n || n <= 1) {
+    return [Number(totalQty) || 0];
+  }
+
+  const raw = Number(totalQty);
+  if (isNaN(raw) || raw <= 0) {
+    return new Array(n).fill(0);
+  }
+
+  const isFloat = raw % 1 !== 0;
+  if (isFloat) {
+    let remaining = raw;
+    const result = [];
+    for (let i = 0; i < n; i++) {
+      const remSections = n - i;
+      if (remSections === 1) {
+        result.push(Math.round(remaining * 1000) / 1000);
+      } else {
+        const share = Math.round((remaining / remSections) * 1000) / 1000;
+        result.push(share);
+        remaining -= share;
+      }
+    }
+    return result;
+  }
+
+  const base = Math.floor(raw / n);
+  const remainder = raw % n;
+  const result = [];
+  for (let i = 0; i < n; i++) {
+    result.push(i < remainder ? base + 1 : base);
+  }
+  return result;
 }

@@ -528,3 +528,30 @@ export async function removeProductFromCounter(mappingId) {
   });
 }
 
+/**
+ * Update rack location for a specific product by partNumber
+ */
+export async function updateProductRack(partNumber, newRack) {
+  if (!partNumber) return false;
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_PRODUCTS], 'readwrite');
+    const store = tx.objectStore(STORE_PRODUCTS);
+    const key = String(partNumber).trim().toUpperCase();
+    const getReq = store.get(key);
+
+    getReq.onsuccess = () => {
+      const item = getReq.result;
+      if (item) {
+        item.rack = (newRack || '').trim();
+        item.updatedAt = new Date().toISOString();
+        store.put(item);
+      }
+    };
+
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+
