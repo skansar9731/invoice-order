@@ -1,10 +1,10 @@
 /**
- * Rack String Parser for Maharashtra Automobile
- * Converts raw Product Master rack strings into normalized Rack IDs, Section Codes, and Sub-sections.
+ * Rack & Counter String Parser for Maharashtra Automobile
+ * Converts raw Product Master rack strings into normalized Rack/Counter IDs, Section Codes, and Sub-sections.
  * 
  * 100% Automatic Reference Layer Parser.
  *
- * Examples:
+ * Rack Examples:
  *  'R-60 A1'    => rackId: 'R60', rackNum: 60, sections: ['A'], locations: [{ section: 'A', subSection: '1', label: 'A1' }]
  *  'R-60 B1'    => rackId: 'R60', rackNum: 60, sections: ['B'], locations: [{ section: 'B', subSection: '1', label: 'B1' }]
  *  'R-60 C2'    => rackId: 'R60', rackNum: 60, sections: ['C'], locations: [{ section: 'C', subSection: '2', label: 'C2' }]
@@ -13,10 +13,27 @@
  *  'R-72 A & B' => rackId: 'R72', rackNum: 72, sections: ['A', 'B'], locations: [{ section: 'A' }, { section: 'B' }]
  *  'R-72 N & P' => rackId: 'R72', rackNum: 72, sections: ['N', 'P'], locations: [{ section: 'N' }, { section: 'P' }]
  *  'R-5'        => rackId: 'R5',  rackNum: 5,  sections: ['_UNASSIGNED_'], hasRecognizableSection: false
+ *
+ * Counter Examples:
+ *  'C-5 A'      => counterId: 'C5', counterNum: 5, sections: ['A'], locations: [{ section: 'A', subSection: null, label: 'A' }]
+ *  'C-5 A1'     => counterId: 'C5', counterNum: 5, sections: ['A'], locations: [{ section: 'A', subSection: '1', label: 'A1' }]
+ *  'COUNTER 5'  => counterId: 'C5', counterNum: 5, sections: ['_UNASSIGNED_'], hasRecognizableSection: false
  */
 
 export const UNASSIGNED_SECTION_CODE = '_UNASSIGNED_';
 
+/**
+ * Checks if a location string represents a front Counter station rather than a floor Rack
+ */
+export function isCounterLocation(str) {
+  if (!str || typeof str !== 'string') return false;
+  const clean = str.trim().toUpperCase();
+  return /^(?:COUNTER[-_\s]*|C[-_\s]*)(\d+)/i.test(clean);
+}
+
+/**
+ * Parse Product Rack Location
+ */
 export function parseProductRack(rackStr) {
   if (!rackStr || typeof rackStr !== 'string') {
     return null;
@@ -24,6 +41,11 @@ export function parseProductRack(rackStr) {
 
   const clean = rackStr.trim().toUpperCase();
   if (!clean) return null;
+
+  // If this string explicitly indicates a Counter station (e.g. C-5 A, COUNTER 1), it is not a Rack
+  if (isCounterLocation(clean)) {
+    return null;
+  }
 
   let rackNum = null;
   let remaining = '';
@@ -132,19 +154,103 @@ export function parseProductRack(rackStr) {
 }
 
 /**
+ * Parse Product Counter Location
+ * e.g. 'C-5 A', 'C-5 A1', 'C5 A', 'COUNTER 5 A', 'COUNTER-5 ABC', 'C-1 A'
+ */
+export function parseProductCounter(counterStr) {
+  if (!counterStr || typeof counterStr !== 'string') {
+    return null;
+  }
+
+  const clean = counterStr.trim().toUpperCase();
+  if (!clean) return null;
+
+  const match = clean.match(/^(?:COUNTER[-_\s]*|C[-_\s]*)(\d+)(.*)$/i);
+  if (!match) return null;
+
+  const counterNum = parseInt(match[1], 10);
+  if (isNaN(counterNum) || counterNum <= 0) return null;
+
+  const counterId = `C${counterNum}`;
+  const remaining = (match[2] || '').trim();
+
+  const sections = [];
+  const locations = [];
+
+  if (remaining) {
+    let cleanedRemaining = remaining
+      .replace(/SECTION|SEC|BAY/gi, ' ')
+      .replace(/\bAND\b/gi, ' ')
+      .replace(/[&+,/]/g, ' ')
+      .trim();
+
+    const rangeMatch = cleanedRemaining.match(/^([A-Z])\s*(?:-|TO)\s*([A-Z])$/i);
+    const subRangeMatch = cleanedRemaining.match(/^([A-Z])(\d+)\s*(?:-|TO)\s*\1(\d+)$/i);
+
+    if (rangeMatch) {
+      const start = rangeMatch[1].toUpperCase().charCodeAt(0);
+      const end = rangeMatch[2].toUpperCase().charCodeAt(0);
+      if (start <= end && end - start <= 26) {
+        for (let code = start; code <= end; code++) {
+          const char = String.fromCharCode(code);
+          if (!sections.includes(char)) sections.push(char);
+          locations.push({ section: char, subSection: null, label: char });
+        }
+      }
+    } else if (subRangeMatch) {
+      const secLetter = subRangeMatch[1].toUpperCase();
+      const startSub = parseInt(subRangeMatch[2], 10);
+      const endSub = parseInt(subRangeMatch[3], 10);
+      if (startSub <= endSub && endSub - startSub <= 20) {
+        if (!sections.includes(secLetter)) sections.push(secLetter);
+        for (let s = startSub; s <= endSub; s++) {
+          locations.push({ section: secLetter, subSection: String(s), label: `${secLetter}${s}` });
+        }
+      }
+    } else {
+      const tokens = cleanedRemaining.split(/[\s_]+/).filter(Boolean);
+
+      for (const token of tokens) {
+        const subSecMatch = token.match(/^([A-Z])[-_]?(\d+)$/);
+        if (subSecMatch) {
+          const sec = subSecMatch[1];
+          const sub = subSecMatch[2];
+          if (!sections.includes(sec)) sections.push(sec);
+          locations.push({ section: sec, subSection: sub, label: `${sec}${sub}` });
+          continue;
+        }
+
+        if (/^[A-Z]$/.test(token)) {
+          if (!sections.includes(token)) sections.push(token);
+          locations.push({ section: token, subSection: null, label: token });
+          continue;
+        }
+
+        if (/^[A-Z]{2,6}$/.test(token)) {
+          for (const char of token) {
+            if (!sections.includes(char)) sections.push(char);
+            locations.push({ section: char, subSection: null, label: char });
+          }
+          continue;
+        }
+      }
+    }
+  }
+
+  const hasRecognizableSection = sections.length > 0;
+
+  return {
+    counterId,
+    counterNum,
+    raw: clean,
+    sections: hasRecognizableSection ? sections : [UNASSIGNED_SECTION_CODE],
+    locations: hasRecognizableSection ? locations : [{ section: UNASSIGNED_SECTION_CODE, subSection: null, label: 'Unassigned' }],
+    hasRecognizableSection
+  };
+}
+
+/**
  * Distribute total quantity across multiple locations as evenly as possible.
- * 
- * Rules:
- * - When ONE product has multiple locations (e.g. ABC -> 3 sections, A & B -> 2 sections, A1 A2 -> 2 sub-sections)
- * - Distribute total quantity evenly.
- * - Integer remainder is distributed +1 to the first locations.
- * - SUM OF DISTRIBUTED QUANTITY MUST ALWAYS EQUAL ORIGINAL PRODUCT STOCK QUANTITY.
- * 
- * Examples:
- * - 50 across 3 sections (R-15 ABC) -> [17, 17, 16] (Sum = 50)
- * - 60 across 2 sections (R-72 A & B) -> [30, 30] (Sum = 60)
- * - 10 across 4 locations -> [3, 3, 2, 2] (Sum = 10)
- * - 40 across 2 locations -> [20, 20] (Sum = 40)
  */
 export function distributeQuantityAcrossSections(totalQty, numSections) {
   const n = numSections;

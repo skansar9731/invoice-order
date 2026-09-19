@@ -23,7 +23,6 @@ let selectedSubSectionFilter = null; // null for All, or specific sub-section co
 // In-memory runtime data derived dynamically on load
 let currentProductMaster = [];
 let rackIndex = new Map(); // rackId -> RackData
-let unassignedProductsList = []; // Products with missing or unparseable rack strings
 
 /**
  * Main entry point called when Rack Map tab is opened
@@ -52,7 +51,6 @@ export async function loadRackMap() {
  */
 function buildAutomaticRackIndex() {
   rackIndex.clear();
-  unassignedProductsList = [];
 
   // 1. Seed index with the 71 standard predefined active racks (R1–R73 excluding R12 and R64)
   INITIAL_RACKS_SPEC.forEach(spec => {
@@ -85,19 +83,11 @@ function buildAutomaticRackIndex() {
   // 2. Distribute products from Product Master into Racks, Sections, and Sub-sections
   currentProductMaster.forEach(product => {
     if (!product.rack || !String(product.rack).trim()) {
-      unassignedProductsList.push({
-        ...product,
-        unassignedReason: 'No rack specified in Product Master'
-      });
       return;
     }
 
     const parsed = parseProductRack(product.rack);
     if (!parsed) {
-      unassignedProductsList.push({
-        ...product,
-        unassignedReason: `Unrecognized rack format: "${product.rack}"`
-      });
       return;
     }
 
@@ -313,27 +303,13 @@ function renderAllRacksView(container) {
       </div>
     </div>
 
-    <!-- Racks Responsive Grid -->
-    <div id="racks-grid-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-      <!-- Injected rack cards -->
+    <!-- Racks Responsive Scroll Container -->
+    <div class="map-scroll-container">
+      <div id="racks-grid-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        <!-- Injected rack cards -->
+      </div>
     </div>
 
-    <!-- Unassigned Products Drawer (Only if items cannot be matched to a rack number) -->
-    ${unassignedProductsList.length > 0 ? `
-      <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
-        <div class="flex items-center gap-2.5">
-          <span class="text-xl">⚠️</span>
-          <div>
-            <div class="font-bold text-amber-900">${unassignedProductsList.length} item(s) without valid Rack numbers</div>
-            <div class="text-[11px] text-amber-700 mt-0.5">These products have missing or unrecognized rack fields in the Product Master.</div>
-          </div>
-        </div>
-        <button type="button" id="btn-view-unassigned-racks"
-          class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition self-start sm:self-auto shrink-0">
-          View Unassigned Items (${unassignedProductsList.length})
-        </button>
-      </div>
-    ` : ''}
   `;
 
   // Render rack cards
@@ -354,15 +330,6 @@ function renderAllRacksView(container) {
       renderRackCards(gridContainer, filtered);
     });
   }
-
-  // View unassigned items handler
-  container.querySelector('#btn-view-unassigned-racks')?.addEventListener('click', () => {
-    selectedRackId = '_UNASSIGNED_';
-    selectedSectionCode = '_UNASSIGNED_';
-    activeView = 'products';
-    renderCurrentView();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  });
 }
 
 function renderRackCards(container, racks) {
@@ -508,40 +475,42 @@ function renderRackSectionsView(container) {
       </div>
     ` : ''}
 
-    <!-- Sections Grid -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-      ${sectionsList.map(sec => {
-        const secProds = sec.products || [];
-        const sCount = secProds.length;
-        let sQty = 0;
-        secProds.forEach(p => {
-          sQty += getNumericStock(p.allocatedQty);
-        });
+    <!-- Sections Responsive Scroll Container -->
+    <div class="map-scroll-container">
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        ${sectionsList.map(sec => {
+          const secProds = sec.products || [];
+          const sCount = secProds.length;
+          let sQty = 0;
+          secProds.forEach(p => {
+            sQty += getNumericStock(p.allocatedQty);
+          });
 
-        const subSecCount = sec.subSectionMap.size;
+          const subSecCount = sec.subSectionMap.size;
 
-        return `
-          <button type="button" data-section-select="${sec.code}"
-            class="text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[110px]">
-            <div>
-              <div class="flex items-center justify-between">
-                <span class="font-mono font-extrabold text-lg text-slate-900 group-hover:text-emerald-700">
-                  Section ${sec.code}
-                </span>
-                ${subSecCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">${subSecCount} sub</span>` : ''}
+          return `
+            <button type="button" data-section-select="${sec.code}"
+              class="text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[110px]">
+              <div>
+                <div class="flex items-center justify-between">
+                  <span class="font-mono font-extrabold text-lg text-slate-900 group-hover:text-emerald-700">
+                    Section ${sec.code}
+                  </span>
+                  ${subSecCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">${subSecCount} sub</span>` : ''}
+                </div>
+                <div class="text-[11px] text-slate-500 mt-1">
+                  ${subSecCount > 0 ? `${subSecCount} sub-section(s)` : 'Direct bay'}
+                </div>
               </div>
-              <div class="text-[11px] text-slate-500 mt-1">
-                ${subSecCount > 0 ? `${subSecCount} sub-section(s)` : 'Direct bay'}
-              </div>
-            </div>
 
-            <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-              <span class="text-slate-500 font-medium"><b>${sCount}</b> items</span>
-              <span class="font-bold ${sQty > 0 ? 'text-emerald-700' : 'text-slate-400'}">Qty: ${sQty}</span>
-            </div>
-          </button>
-        `;
-      }).join('')}
+              <div class="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                <span class="text-slate-500 font-medium"><b>${sCount}</b> items</span>
+                <span class="font-bold ${sQty > 0 ? 'text-emerald-700' : 'text-slate-400'}">Qty: ${sQty}</span>
+              </div>
+            </button>
+          `;
+        }).join('')}
+      </div>
     </div>
   `;
 
@@ -573,12 +542,6 @@ function renderRackSectionsView(container) {
  * ----------------------------------------------------------------------------
  */
 function renderSectionProductsView(container) {
-  // Handle viewing general unassigned products list
-  if (selectedRackId === '_UNASSIGNED_') {
-    renderGlobalUnassignedView(container);
-    return;
-  }
-
   const rack = rackIndex.get(selectedRackId);
   if (!rack) {
     activeView = 'racks';
@@ -694,56 +657,58 @@ function renderSectionProductsView(container) {
           No products currently located in this position.
         </div>
       ` : `
-        <!-- Desktop Table View -->
-        <div class="responsive-table-view bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-          <table class="w-full text-left text-xs border-collapse">
-            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-              <tr>
-                <th class="px-3 py-2.5 w-12 text-center">#</th>
-                <th class="px-3 py-2.5 min-w-[240px]">Product Name / Item Details</th>
-                <th class="px-3 py-2.5">Part Number</th>
-                <th class="px-3 py-2.5">Group</th>
-                <th class="px-3 py-2.5 text-center">Sub-section</th>
-                <th class="px-3 py-2.5 text-center">Available Qty</th>
-                <th class="px-3 py-2.5 text-center">Unit</th>
-                <th class="px-3 py-2.5 text-right">MRP</th>
-                <th class="px-3 py-2.5 text-center">Rack Field</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 text-slate-800">
-              ${displayedProducts.map((p, idx) => {
-                const qty = getNumericStock(p.allocatedQty);
-                return `
-                  <tr class="hover:bg-slate-50/80 transition">
-                    <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
-                    <td class="px-3 py-2 font-bold text-slate-900">
-                      <div>${escapeHtml(p.productName || p.itemDetails || '-')}</div>
-                      ${p.isDistributed ? `
-                        <div class="text-[10px] font-normal text-amber-700 bg-amber-50 inline-block px-1.5 py-0.5 rounded border border-amber-200 mt-0.5">
-                          Distributed: ${qty} of ${p.distributionInfo.totalQty} across ${p.distributionInfo.allLocations.join(', ')}
-                        </div>
-                      ` : ''}
-                    </td>
-                    <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
-                    <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
-                    <td class="px-3 py-2 text-center font-mono">
-                      ${p.subSection ? `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">Sub ${escapeHtml(p.subSection)}</span>` : '<span class="text-slate-400">-</span>'}
-                    </td>
-                    <td class="px-3 py-2 text-center font-extrabold ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'}">
-                      ${qty}
-                    </td>
-                    <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
-                    <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</td>
-                    <td class="px-3 py-2 text-center font-mono text-slate-500">${escapeHtml(p.rack || '-')}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+        <!-- Desktop Table View with Sticky Header & Scroll -->
+        <div class="responsive-table-view bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+          <div class="table-scroll-container">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs z-10">
+                <tr>
+                  <th class="px-3 py-2.5 w-12 text-center bg-slate-100">#</th>
+                  <th class="px-3 py-2.5 min-w-[240px] bg-slate-100">Product Name / Item Details</th>
+                  <th class="px-3 py-2.5 bg-slate-100">Part Number</th>
+                  <th class="px-3 py-2.5 bg-slate-100">Group</th>
+                  <th class="px-3 py-2.5 text-center bg-slate-100">Sub-section</th>
+                  <th class="px-3 py-2.5 text-center bg-slate-100">Available Qty</th>
+                  <th class="px-3 py-2.5 text-center bg-slate-100">Unit</th>
+                  <th class="px-3 py-2.5 text-right bg-slate-100">MRP</th>
+                  <th class="px-3 py-2.5 text-center bg-slate-100">Rack Field</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 text-slate-800">
+                ${displayedProducts.map((p, idx) => {
+                  const qty = getNumericStock(p.allocatedQty);
+                  return `
+                    <tr class="hover:bg-slate-50/80 transition">
+                      <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
+                      <td class="px-3 py-2 font-bold text-slate-900">
+                        <div>${escapeHtml(p.productName || p.itemDetails || '-')}</div>
+                        ${p.isDistributed ? `
+                          <div class="text-[10px] font-normal text-amber-700 bg-amber-50 inline-block px-1.5 py-0.5 rounded border border-amber-200 mt-0.5">
+                            Distributed: ${qty} of ${p.distributionInfo.totalQty} across ${p.distributionInfo.allLocations.join(', ')}
+                          </div>
+                        ` : ''}
+                      </td>
+                      <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
+                      <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
+                      <td class="px-3 py-2 text-center font-mono">
+                        ${p.subSection ? `<span class="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">Sub ${escapeHtml(p.subSection)}</span>` : '<span class="text-slate-400">-</span>'}
+                      </td>
+                      <td class="px-3 py-2 text-center font-extrabold ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'}">
+                        ${qty}
+                      </td>
+                      <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
+                      <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</td>
+                      <td class="px-3 py-2 text-center font-mono text-slate-500">${escapeHtml(p.rack || '-')}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- Mobile Cards View -->
-        <div class="responsive-card-view space-y-2.5">
+        <!-- Mobile Cards View with Scroll -->
+        <div class="responsive-card-view map-scroll-container p-1 space-y-2.5">
           ${displayedProducts.map(p => {
             const qty = getNumericStock(p.allocatedQty);
             return `
@@ -801,73 +766,6 @@ function renderSectionProductsView(container) {
       selectedSubSectionFilter = filterVal || null;
       renderCurrentView();
     });
-  });
-}
-
-/**
- * Dedicated view for products where rack number could not be determined at all
- */
-function renderGlobalUnassignedView(container) {
-  container.innerHTML = `
-    <div class="bg-white rounded-xl shadow-xs border border-slate-200 p-5 sm:p-6 transition">
-      <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
-        <button type="button" id="btn-back-to-all-racks" class="hover:text-slate-900 font-bold text-emerald-700">
-          ← All Racks
-        </button>
-        <span>/</span>
-        <span class="font-bold text-amber-800">Unassigned Products</span>
-      </div>
-
-      <div class="pb-4 border-b border-slate-100">
-        <h2 class="text-xl font-extrabold text-slate-900 flex items-center gap-2">
-          <span>⚠️ Unassigned Storage Locations</span>
-          <span class="text-xs px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-normal">
-            ${unassignedProductsList.length} items
-          </span>
-        </h2>
-        <p class="text-xs text-slate-500 mt-1">
-          These products do not have a valid Rack number (e.g. R-1 to R-73) specified in their uploaded Product Master record.
-        </p>
-      </div>
-    </div>
-
-    <div class="responsive-table-view bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
-      <table class="w-full text-left text-xs border-collapse">
-        <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
-          <tr>
-            <th class="px-3 py-2.5 w-12 text-center">#</th>
-            <th class="px-3 py-2.5">Product Name / Item Details</th>
-            <th class="px-3 py-2.5">Part Number</th>
-            <th class="px-3 py-2.5">Group</th>
-            <th class="px-3 py-2.5 text-center">Current Rack Value</th>
-            <th class="px-3 py-2.5 text-center">Stock Qty</th>
-            <th class="px-3 py-2.5 text-right">MRP</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100 text-slate-800">
-          ${unassignedProductsList.map((p, idx) => `
-            <tr class="hover:bg-slate-50/80 transition">
-              <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
-              <td class="px-3 py-2 font-bold text-slate-900">${escapeHtml(p.productName || p.itemDetails || '-')}</td>
-              <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
-              <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
-              <td class="px-3 py-2 text-center font-mono text-amber-800 font-bold">${escapeHtml(p.rack || '(empty)')}</td>
-              <td class="px-3 py-2 text-center font-bold">${getNumericStock(p.stockQty)}</td>
-              <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : '0.00'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  container.querySelector('#btn-back-to-all-racks')?.addEventListener('click', () => {
-    activeView = 'racks';
-    selectedRackId = null;
-    selectedSectionCode = null;
-    selectedSubSectionFilter = null;
-    renderCurrentView();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 }
 

@@ -152,3 +152,95 @@ table thead th {
   box-shadow: 0 0 0 2px #10b981;
 }
 
+/* Counter Map styling */
+.counter-card {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.counter-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+.counter-card.active-counter {
+  border-color: #0284c7 !important;
+  background-color: #f0f9ff !important;
+  box-shadow: 0 0 0 2px #0284c7;
+}
+
+/* ==========================================================================
+   ENHANCED RESPONSIVE SCROLL CONTAINERS FOR RACK MAP & COUNTER MAP
+   Guarantees smooth scrolling on mobile, tablet, laptop, and desktop displays.
+   ========================================================================== */
+.map-scroll-container {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  max-height: calc(100dvh - 290px);
+  min-height: 320px;
+  padding-right: 4px;
+  padding-bottom: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+@media screen and (max-width: 767.98px) {
+  .map-scroll-container {
+    max-height: calc(100dvh - 310px);
+    min-height: 260px;
+    padding-bottom: 32px;
+  }
+}
+
+.map-scroll-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.map-scroll-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.map-scroll-container::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.map-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Products Table Dedicated Scrollable Container */
+.table-scroll-container {
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  max-height: calc(100dvh - 320px);
+  min-height: 300px;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+.table-scroll-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-scroll-container::-webkit-scrollbar-track {
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 8px;
+  border: 2px solid #f8fafc;
+}
+
+.table-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+

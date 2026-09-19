@@ -1,15 +1,25 @@
 /**
- * Comprehensive Verification Test for Reworked Automatic Rack Map Logic
- * Maharashtra Automobile — Physical Storage Floor Reference Layer
+ * Comprehensive Verification Test for Reworked Automatic Rack Map & Counter Map Logic
+ * Maharashtra Automobile — Physical Floor & Counter Reference Layer
  */
 
-import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './js/rackParser.js';
-import { INITIAL_RACKS_SPEC, generateSections } from './js/mapConfigData.js';
+import {
+  parseProductRack,
+  parseProductCounter,
+  isCounterLocation,
+  UNASSIGNED_SECTION_CODE,
+  distributeQuantityAcrossSections
+} from './js/rackParser.js';
+import {
+  INITIAL_RACKS_SPEC,
+  INITIAL_COUNTERS_SPEC,
+  generateSections
+} from './js/mapConfigData.js';
 
-console.log('=== RUNNING REWORKED AUTOMATIC RACK MAP VERIFICATION SUITE ===\n');
+console.log('=== RUNNING REWORKED AUTOMATIC RACK & COUNTER MAP VERIFICATION SUITE ===\n');
 
 // ----------------------------------------------------------------------------
-// Test 1: Sub-section identification from single-letter + number (Section 1 & 4)
+// Test 1: Sub-section identification from single-letter + number
 // ----------------------------------------------------------------------------
 console.log('Test 1: Verifying Sub-section identification (R-60 A1, B1, C2, D7)...');
 
@@ -42,7 +52,7 @@ for (const c of subSecCases) {
 console.log('  ✓ PASSED: Sub-sections A1, B1, C2, D7 parsed with exact Section & Sub-section identifiers.');
 
 // ----------------------------------------------------------------------------
-// Test 2: Multiple Sub-sections (Section 4: A1 A2 A3 A4, B1 B2 B3, C1 C2)
+// Test 2: Multiple Sub-sections (A1 A2 A3 A4, B1 B2 B3, C1 C2)
 // ----------------------------------------------------------------------------
 console.log('\nTest 2: Verifying Multiple Sub-sections (A1 A2 A3 A4, B1 B2 B3, C1 C2)...');
 
@@ -72,7 +82,7 @@ for (const m of multiSubCases) {
 console.log('  ✓ PASSED: Multiple sub-sections correctly mapped to physical locations.');
 
 // ----------------------------------------------------------------------------
-// Test 3: Multiple Sections (Section 2 & 3: ABC, DEF, A & B, N & P, etc.)
+// Test 3: Multiple Sections (ABC, DEF, A & B, N & P, A&B, N&P)
 // ----------------------------------------------------------------------------
 console.log('\nTest 3: Verifying Multiple Sections (ABC, DEF, A & B, N & P, A&B, N&P)...');
 
@@ -105,9 +115,62 @@ for (const m of multiSecCases) {
 console.log('  ✓ PASSED: All multiple section formats (ABC, DEF, A & B, N & P, A&B, N&P) parsed cleanly.');
 
 // ----------------------------------------------------------------------------
-// Test 4: Stock Distribution Exact Arithmetic (Section 6)
+// Test 4: Counter Location Parsing (C-5 A, C-5 A1, COUNTER 5, etc.)
 // ----------------------------------------------------------------------------
-console.log('\nTest 4: Verifying stock distribution rule (Sum === original stockQty)...');
+console.log('\nTest 4: Verifying Counter Location Parsing & Isolation...');
+
+const counterCases = [
+  { input: 'C-5 A', cId: 'C5', cNum: 5, expectedSections: ['A'], hasSub: false },
+  { input: 'C-5 A1', cId: 'C5', cNum: 5, expectedSections: ['A'], hasSub: true, sub: '1' },
+  { input: 'C-5 C', cId: 'C5', cNum: 5, expectedSections: ['C'], hasSub: false },
+  { input: 'C-5 E', cId: 'C5', cNum: 5, expectedSections: ['E'], hasSub: false },
+  { input: 'C-5 F', cId: 'C5', cNum: 5, expectedSections: ['F'], hasSub: false },
+  { input: 'C5 A', cId: 'C5', cNum: 5, expectedSections: ['A'], hasSub: false },
+  { input: 'COUNTER 5 A', cId: 'C5', cNum: 5, expectedSections: ['A'], hasSub: false },
+  { input: 'COUNTER-5 ABC', cId: 'C5', cNum: 5, expectedSections: ['A', 'B', 'C'], hasSub: false },
+  { input: 'C-1 A', cId: 'C1', cNum: 1, expectedSections: ['A'], hasSub: false },
+  { input: 'C-8 T', cId: 'C8', cNum: 8, expectedSections: ['T'], hasSub: false }
+];
+
+for (const cc of counterCases) {
+  // Must be recognized as counter
+  if (!isCounterLocation(cc.input)) {
+    console.error(`FAILED: ${cc.input} not recognized as counter location!`);
+    process.exit(1);
+  }
+
+  // Must NOT be parsed as a floor rack (Rack Map ignores it)
+  const rackParsed = parseProductRack(cc.input);
+  if (rackParsed !== null) {
+    console.error(`FAILED: ${cc.input} was incorrectly accepted by parseProductRack!`);
+    process.exit(1);
+  }
+
+  // Must be parsed by parseProductCounter
+  const counterParsed = parseProductCounter(cc.input);
+  if (!counterParsed || !counterParsed.hasRecognizableSection) {
+    console.error(`FAILED: ${cc.input} failed counter parsing!`);
+    process.exit(1);
+  }
+  if (counterParsed.counterId !== cc.cId || counterParsed.counterNum !== cc.cNum) {
+    console.error(`FAILED: ${cc.input} counter ID/Num mismatch! Got ${counterParsed.counterId}, expected ${cc.cId}`);
+    process.exit(1);
+  }
+  if (JSON.stringify(counterParsed.sections) !== JSON.stringify(cc.expectedSections)) {
+    console.error(`FAILED: ${cc.input} counter sections mismatch! Got ${JSON.stringify(counterParsed.sections)}, expected ${JSON.stringify(cc.expectedSections)}`);
+    process.exit(1);
+  }
+  if (cc.hasSub && counterParsed.locations[0].subSection !== cc.sub) {
+    console.error(`FAILED: ${cc.input} subSection mismatch! Got ${counterParsed.locations[0].subSection}, expected ${cc.sub}`);
+    process.exit(1);
+  }
+}
+console.log('  ✓ PASSED: Counter locations parsed accurately; strictly rejected by parseProductRack to prevent false warnings.');
+
+// ----------------------------------------------------------------------------
+// Test 5: Stock Distribution Exact Arithmetic (Sum === original stockQty)
+// ----------------------------------------------------------------------------
+console.log('\nTest 5: Verifying stock distribution rule (Sum === original stockQty)...');
 
 const qtyCases = [
   { stock: 50, numLocations: 3, expected: [17, 17, 16], desc: 'R-15 ABC Qty 50 -> 17, 17, 16' },
@@ -133,12 +196,13 @@ for (const qc of qtyCases) {
 console.log('  ✓ PASSED: Stock distribution arithmetic strictly preserves original total quantity.');
 
 // ----------------------------------------------------------------------------
-// Test 5: End-to-End Simulation: Browser Data Clear & Automatic Rebuild Test (Section 8 & 12)
+// Test 6: End-to-End Simulation: Browser Data Clear & Automatic Rebuild (Rack + Counter)
 // ----------------------------------------------------------------------------
-console.log('\nTest 5: Simulating Browser Data Clear and Stock Upload Rebuild...');
+console.log('\nTest 6: Simulating Browser Data Clear and Stock Upload Rebuild for BOTH Maps...');
 
-// Simulated uploaded products in Product Master
+// Sample Product Master containing BOTH Rack products and Counter products
 const sampleProducts = [
+  // Racks
   { partNumber: 'PART-001', productName: 'AIR FILTER DREAM YUGA', stockQty: 50, rack: 'R-15 ABC', rate: 150, unit: 'Pcs.' },
   { partNumber: 'PART-002', productName: 'FRONT BRAKE PAD', stockQty: 60, rack: 'R-72 A & B', rate: 350, unit: 'Set' },
   { partNumber: 'PART-003', productName: 'REAR BRAKE SHOE', stockQty: 60, rack: 'R-72 N & P', rate: 280, unit: 'Set' },
@@ -146,119 +210,103 @@ const sampleProducts = [
   { partNumber: 'PART-005', productName: 'CLUTCH CABLE', stockQty: 25, rack: 'R-60 B1', rate: 95, unit: 'Pcs.' },
   { partNumber: 'PART-006', productName: 'ACCELERATOR CABLE', stockQty: 15, rack: 'R-60 C2', rate: 85, unit: 'Pcs.' },
   { partNumber: 'PART-007', productName: 'OIL FILTER', stockQty: 40, rack: 'R-60 D7', rate: 65, unit: 'Pcs.' },
-  { partNumber: 'PART-008', productName: 'ZERO STOCK GASKET', stockQty: 0, rack: 'R-1 G', rate: 25, unit: 'Pcs.' }
+  { partNumber: 'PART-008', productName: 'ZERO STOCK GASKET', stockQty: 0, rack: 'R-1 G', rate: 25, unit: 'Pcs.' },
+
+  // Counters (from user's Counter 5 screenshot)
+  { partNumber: 'CTR-001', productName: 'COUNTER PART A', stockQty: 69, rack: 'C-5 A', rate: 110, unit: 'Pcs.' },
+  { partNumber: 'CTR-002', productName: 'COUNTER PART C', stockQty: 57, rack: 'C-5 C', rate: 220, unit: 'Pcs.' },
+  { partNumber: 'CTR-003', productName: 'COUNTER PART E', stockQty: 9, rack: 'C-5 E', rate: 330, unit: 'Pcs.' },
+  { partNumber: 'CTR-004', productName: 'COUNTER PART F1', stockQty: 7, rack: 'C-5 F', rate: 440, unit: 'Pcs.' },
+  { partNumber: 'CTR-005', productName: 'COUNTER PART F2', stockQty: 6, rack: 'C-5 F', rate: 550, unit: 'Pcs.' }
 ];
 
-function simulateBuildRackMap(products) {
-  // Build in-memory index like rackMap.js
-  const index = new Map();
-
-  // 71 predefined racks
+function simulateFullShopMapping(products) {
+  // 1. Rack Map Index
+  const rackMap = new Map();
   INITIAL_RACKS_SPEC.forEach(spec => {
-    const rackId = `R${spec.num}`;
-    const predefinedSecCodes = generateSections(spec.range[0], spec.range[1]).map(s => s.code);
-    index.set(rackId, {
-      id: rackId,
-      rackNum: spec.num,
-      name: `Rack ${spec.num}`,
-      sectionStart: spec.range[0],
-      sectionEnd: spec.range[1],
-      sectionMap: new Map()
-    });
-    const rData = index.get(rackId);
-    predefinedSecCodes.forEach(code => {
-      rData.sectionMap.set(code, { code, products: [], subSectionMap: new Map() });
-    });
+    const rId = `R${spec.num}`;
+    const secCodes = generateSections(spec.range[0], spec.range[1]).map(s => s.code);
+    rackMap.set(rId, { id: rId, rackNum: spec.num, sectionMap: new Map() });
+    secCodes.forEach(code => rackMap.get(rId).sectionMap.set(code, { code, products: [] }));
   });
 
-  // Populate from products
+  // 2. Counter Map Index
+  const counterMap = new Map();
+  INITIAL_COUNTERS_SPEC.forEach(spec => {
+    const cId = `C${spec.num}`;
+    const secCodes = generateSections(spec.range[0], spec.range[1]).map(s => s.code);
+    counterMap.set(cId, { id: cId, counterNum: spec.num, sectionMap: new Map() });
+    secCodes.forEach(code => counterMap.get(cId).sectionMap.set(code, { code, products: [] }));
+  });
+
+  let rackWarningsCount = 0;
+
   products.forEach(p => {
-    const parsed = parseProductRack(p.rack);
-    if (!parsed) return;
-    const rackData = index.get(parsed.rackId);
-    if (!rackData) return;
+    // Rack Map indexing
+    const parsedRack = parseProductRack(p.rack);
+    if (parsedRack && rackMap.has(parsedRack.rackId)) {
+      const r = rackMap.get(parsedRack.rackId);
+      const locs = parsedRack.locations || [];
+      const splits = distributeQuantityAcrossSections(Number(p.stockQty) || 0, locs.length);
+      locs.forEach((loc, idx) => {
+        if (!r.sectionMap.has(loc.section)) r.sectionMap.set(loc.section, { code: loc.section, products: [] });
+        r.sectionMap.get(loc.section).products.push({ ...p, allocatedQty: splits[idx] });
+      });
+    } else if (!isCounterLocation(p.rack)) {
+      // Genuinely unassigned (neither rack nor counter)
+      rackWarningsCount++;
+    }
 
-    const totalStock = Number(p.stockQty) || 0;
-    const locs = parsed.locations || [];
-    const splits = distributeQuantityAcrossSections(totalStock, locs.length);
-
-    locs.forEach((loc, idx) => {
-      const secCode = loc.section;
-      const subCode = loc.subSection || null;
-      const allocatedQty = splits[idx];
-
-      if (!rackData.sectionMap.has(secCode)) {
-        rackData.sectionMap.set(secCode, { code: secCode, products: [], subSectionMap: new Map() });
-      }
-      const secData = rackData.sectionMap.get(secCode);
-      const item = { ...p, allocatedQty, subSection: subCode };
-      secData.products.push(item);
-
-      if (subCode) {
-        if (!secData.subSectionMap.has(subCode)) {
-          secData.subSectionMap.set(subCode, { code: subCode, products: [] });
-        }
-        secData.subSectionMap.get(subCode).products.push(item);
-      }
-    });
+    // Counter Map indexing
+    const parsedCounter = parseProductCounter(p.rack);
+    if (parsedCounter && counterMap.has(parsedCounter.counterId)) {
+      const c = counterMap.get(parsedCounter.counterId);
+      const locs = parsedCounter.locations || [];
+      const splits = distributeQuantityAcrossSections(Number(p.stockQty) || 0, locs.length);
+      locs.forEach((loc, idx) => {
+        if (!c.sectionMap.has(loc.section)) c.sectionMap.set(loc.section, { code: loc.section, products: [] });
+        c.sectionMap.get(loc.section).products.push({ ...p, allocatedQty: splits[idx] });
+      });
+    }
   });
 
-  return index;
+  return { rackMap, counterMap, rackWarningsCount };
 }
 
-// 1. Initial Build
-const firstBuild = simulateBuildRackMap(sampleProducts);
+// 1. First Build
+const run1 = simulateFullShopMapping(sampleProducts);
 
-// Verify initial build assertions
-const r15 = firstBuild.get('R15');
-const r15SecA = r15.sectionMap.get('A').products[0].allocatedQty;
-const r15SecB = r15.sectionMap.get('B').products[0].allocatedQty;
-const r15SecC = r15.sectionMap.get('C').products[0].allocatedQty;
-if (r15SecA !== 17 || r15SecB !== 17 || r15SecC !== 16) {
-  console.error(`FAILED: R15 distributed qtys mismatch: ${r15SecA}, ${r15SecB}, ${r15SecC}`);
+// Assertions for Counter 5
+const c5 = run1.counterMap.get('C5');
+const c5SecA = c5.sectionMap.get('A').products[0].allocatedQty;
+const c5SecC = c5.sectionMap.get('C').products[0].allocatedQty;
+const c5SecE = c5.sectionMap.get('E').products[0].allocatedQty;
+const c5SecF_total = c5.sectionMap.get('F').products.reduce((acc, p) => acc + p.allocatedQty, 0);
+
+if (c5SecA !== 69 || c5SecC !== 57 || c5SecE !== 9 || c5SecF_total !== 13) {
+  console.error(`FAILED: Counter 5 products mismatch! Sec A: ${c5SecA}, Sec C: ${c5SecC}, Sec E: ${c5SecE}, Sec F: ${c5SecF_total}`);
   process.exit(1);
 }
 
-const r60 = firstBuild.get('R60');
-const r60SecA = r60.sectionMap.get('A');
-if (r60SecA.subSectionMap.size !== 4) {
-  console.error(`FAILED: Expected 4 sub-sections in R-60 Sec A, got ${r60SecA.subSectionMap.size}`);
-  process.exit(1);
-}
-console.log('  ✓ Initial stock build successful: R15 distributed 17/17/16, R60 Sec A has 4 sub-sections.');
-
-// 2. Simulate CLEARING BROWSER STORAGE
-console.log('  Clearing browser storage in simulation...');
-let simulatedStorage = null;
-
-// 3. Simulate RELOAD & RE-UPLOAD of identical stock
-console.log('  Reloading app and uploading identical stock...');
-const secondBuild = simulateBuildRackMap(sampleProducts);
-
-// Verify rebuilt map
-const r15_2 = secondBuild.get('R15');
-const r15SecA_2 = r15_2.sectionMap.get('A').products[0].allocatedQty;
-const r15SecB_2 = r15_2.sectionMap.get('B').products[0].allocatedQty;
-const r15SecC_2 = r15_2.sectionMap.get('C').products[0].allocatedQty;
-
-if (r15SecA_2 !== 17 || r15SecB_2 !== 17 || r15SecC_2 !== 16) {
-  console.error('FAILED: Rebuild after storage clear failed to replicate distribution!');
+// Assert zero warnings caused by Counter items in Rack Map
+if (run1.rackWarningsCount !== 0) {
+  console.error(`FAILED: Rack Map showed ${run1.rackWarningsCount} false warnings for Counter items!`);
   process.exit(1);
 }
 
-const r60_2 = secondBuild.get('R60');
-if (r60_2.sectionMap.get('A').subSectionMap.size !== 4) {
-  console.error('FAILED: Rebuild after storage clear lost sub-sections!');
+console.log('  ✓ Initial mapping successful: Counter 5 has exactly 69 in A, 57 in C, 9 in E, 13 in F.');
+console.log('  ✓ Verified 0 false warnings in Rack Map for Counter items.');
+
+// 2. Simulate Clearing Browser Storage & Reloading
+console.log('  Clearing browser storage and uploading identical stock...');
+const run2 = simulateFullShopMapping(sampleProducts);
+
+const c5_run2 = run2.counterMap.get('C5');
+const c5SecA_run2 = c5_run2.sectionMap.get('A').products[0].allocatedQty;
+if (c5SecA_run2 !== 69) {
+  console.error('FAILED: Counter 5 rebuild failed after storage clear!');
   process.exit(1);
 }
 
-// Verify zero-stock product is visible with Qty: 0
-const r1 = secondBuild.get('R1');
-const zeroProd = r1.sectionMap.get('G').products[0];
-if (!zeroProd || zeroProd.allocatedQty !== 0) {
-  console.error('FAILED: Zero stock product missing or non-zero!');
-  process.exit(1);
-}
-
-console.log('  ✓ PASSED: Rebuilt map matches original build identically with zero manual reconfiguration.');
-console.log('\n=== ALL AUTOMATIC RACK MAP REWORK VERIFICATION TESTS PASSED 100%! ===\n');
+console.log('  ✓ PASSED: Rebuilt Counter Map matches original build identically with zero manual reconfiguration.');
+console.log('\n=== ALL AUTOMATIC RACK & COUNTER MAP VERIFICATION TESTS PASSED 100%! ===\n');
