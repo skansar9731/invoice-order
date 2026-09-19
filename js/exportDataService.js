@@ -23,11 +23,11 @@ export async function prepareBusyExportRows(order) {
     const customerText = (item.customerText || '').trim();
     const qty = Math.max(1, parseInt(item.quantity || 1, 10));
 
-    // Resolve matched product against IndexedDB Product Master using its stable partNumber
+    // Resolve matched product against IndexedDB Product Master using its stable id or partNumber
     let matchedProd = item.matchedProduct || null;
-    if (matchedProd && matchedProd.partNumber) {
+    if (matchedProd && (matchedProd.id || matchedProd.partNumber)) {
       try {
-        const dbProd = await getProduct(matchedProd.partNumber);
+        const dbProd = await getProduct(matchedProd.id || matchedProd.partNumber);
         if (dbProd) {
           matchedProd = dbProd;
         }

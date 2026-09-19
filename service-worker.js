@@ -3,7 +3,7 @@
  * Caches core app shell and external libraries for full offline product matching & PDF generation
  */
 
-const CACHE_NAME = 'maharashtra-autoparts-v2';
+const CACHE_NAME = 'maharashtra-autoparts-v3';
 
 const STATIC_ASSETS = [
   './',
@@ -18,11 +18,15 @@ const STATIC_ASSETS = [
   './js/matchingEngine.js',
   './js/orderManager.js',
   './js/pdfGenerator.js',
+  './js/excelGenerator.js',
+  './js/exportDataService.js',
+  './js/googleDriveService.js',
   './js/aiService.js',
   './js/ui.js',
   './js/rackMap.js',
   './js/counterMap.js',
   './js/mapManager.js',
+  './js/mapSearch.js',
   './js/rackParser.js',
   './js/mapConfigData.js',
   './assets/icons/icon.svg',

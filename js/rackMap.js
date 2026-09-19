@@ -13,7 +13,9 @@
 import { getAllProducts } from './db.js';
 import { INITIAL_RACKS_SPEC, generateSections } from './mapConfigData.js';
 import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './rackParser.js';
-import { showToast } from './ui.js';
+import { showToast, renderOrderTable } from './ui.js';
+import { addOrderItem } from './orderManager.js';
+import { searchRackMap } from './mapSearch.js';
 
 let activeView = 'racks'; // 'racks' | 'sections' | 'products'
 let selectedRackId = null;
@@ -56,7 +58,7 @@ function buildAutomaticRackIndex() {
   INITIAL_RACKS_SPEC.forEach(spec => {
     const rackId = `R${spec.num}`;
     const predefinedSecCodes = generateSections(spec.range[0], spec.range[1]).map(s => s.code);
-    
+
     rackIndex.set(rackId, {
       id: rackId,
       rackNum: spec.num,
@@ -259,7 +261,7 @@ function renderAllRacksView(container) {
         <div>
           <div class="flex items-center gap-2">
             <h2 class="text-lg font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <span>🗺️ Shop Rack Map</span>
+              <span>🗺️ Rack Map</span>
             </h2>
             <span class="text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">
               ${rackList.length} Racks
@@ -297,7 +299,7 @@ function renderAllRacksView(container) {
             🔎
           </span>
           <input type="text" id="rack-list-filter-input"
-            placeholder="Filter by Rack number (e.g. 1, 15, 60, 72)..."
+            placeholder="Search by Rack (e.g. 72, R-72) or Product (e.g. 21K, Clutch, Bajaj, MRP)..."
             class="w-full text-xs sm:text-sm pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition">
         </div>
       </div>
@@ -316,20 +318,207 @@ function renderAllRacksView(container) {
   const gridContainer = container.querySelector('#racks-grid-container');
   renderRackCards(gridContainer, rackList);
 
-  // Filter input handler
+  // Search input handler supporting both Location and Product Master searches
   const filterInput = container.querySelector('#rack-list-filter-input');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
-      const q = e.target.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const filtered = rackList.filter(r => {
-        if (!q) return true;
-        const rIdClean = r.id.toUpperCase();
-        const rNum = String(r.rackNum);
-        return rIdClean.includes(q) || rNum.includes(q) || r.name.toUpperCase().includes(q);
-      });
-      renderRackCards(gridContainer, filtered);
+      const q = e.target.value;
+      const searchRes = searchRackMap(rackIndex, currentProductMaster, q);
+      renderRackSearchResults(gridContainer, searchRes);
     });
   }
+}
+
+function renderRackSearchResults(container, searchRes) {
+  if (!container) return;
+
+  if (!searchRes || !searchRes.isSearching) {
+    container.className = 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3';
+    renderRackCards(container, searchRes.matchedRacks);
+    return;
+  }
+
+  if (searchRes.matchedRacks.length === 0) {
+    container.className = 'w-full';
+    container.innerHTML = `
+      <div class="text-center py-12 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs space-y-1">
+        <div class="text-2xl">🔍</div>
+        <div class="font-bold text-slate-700 text-sm">No racks or products found</div>
+        <p>No racks or Product Master records match "<b>${escapeHtml(searchRes.query)}</b>".</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.className = 'w-full space-y-4';
+
+  container.innerHTML = `
+    <!-- Search Summary Banner -->
+    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 flex items-center justify-between text-xs text-emerald-900 font-medium">
+      <div class="flex items-center gap-2">
+        <span class="text-base">🔎</span>
+        <span>
+          ${searchRes.totalMatchedProducts > 0
+            ? `Found <b>${searchRes.totalMatchedProducts}</b> matching product(s) across <b>${searchRes.matchedRacks.length}</b> rack(s) for "<b>${escapeHtml(searchRes.query)}</b>"`
+            : `Showing <b>${searchRes.matchedRacks.length}</b> matching rack(s) for "<b>${escapeHtml(searchRes.query)}</b>"`}
+        </span>
+      </div>
+    </div>
+
+    <!-- Matched Racks List -->
+    <div class="space-y-3">
+      ${searchRes.matchedRacks.map(rack => {
+        const matchingProds = rack.matchedProducts || [];
+        const prodCount = matchingProds.length;
+        const locations = rack.relevantLocations || [];
+        const sections = rack.relevantSections || [];
+
+        return `
+          <div class="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+            <!-- Header -->
+            <div class="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5">
+                <button type="button" data-rack-select="${rack.id}"
+                  class="font-mono font-extrabold text-base text-slate-900 hover:text-emerald-700 underline flex items-center gap-1.5 transition">
+                  <span>🗺️ ${escapeHtml(rack.name || rack.id)}</span>
+                </button>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold">
+                  ${prodCount} matching item${prodCount === 1 ? '' : 's'}
+                </span>
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                  ${rack.sectionStart}-${rack.sectionEnd}
+                </span>
+              </div>
+
+              <!-- Relevant Physical Locations / Sections -->
+              <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                ${locations.length > 0 ? `
+                  <span class="text-slate-500 font-semibold">Physical Location(s):</span>
+                  ${locations.map(loc => `
+                    <span class="font-mono font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded border border-sky-200 text-xs">
+                      ${escapeHtml(loc)}
+                    </span>
+                  `).join('')}
+                ` : (sections.length > 0 ? `
+                  <span class="text-slate-500 font-semibold">Section(s):</span>
+                  ${sections.map(sec => `
+                    <span class="font-mono font-bold px-2 py-0.5 bg-sky-100 text-sky-800 rounded border border-sky-200 text-xs">
+                      Section ${escapeHtml(sec)}
+                    </span>
+                  `).join('')}
+                ` : '')}
+
+                <button type="button" data-rack-select="${rack.id}"
+                  class="ml-2 text-xs font-bold text-emerald-700 hover:text-emerald-800 underline">
+                  Inspect Rack →
+                </button>
+              </div>
+            </div>
+
+            <!-- Matching Products Table (Desktop) -->
+            ${prodCount > 0 ? `
+              <div class="hidden md:block overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                  <thead class="bg-slate-100/70 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th class="px-3 py-2 text-center w-10">#</th>
+                      <th class="px-3 py-2 min-w-[220px]">Item Details</th>
+                      <th class="px-3 py-2">Part Number</th>
+                      <th class="px-3 py-2 text-center">Available Qty</th>
+                      <th class="px-3 py-2 text-center">Unit</th>
+                      <th class="px-3 py-2 text-right">MRP</th>
+                      <th class="px-3 py-2 text-center">Group</th>
+                      <th class="px-3 py-2 text-center">Rack Location</th>
+                      <th class="px-3 py-2 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 text-slate-800">
+                    ${matchingProds.map((p, idx) => {
+                      const qty = getNumericStock(p.stockQty);
+                      return `
+                        <tr class="hover:bg-slate-50/80 transition">
+                          <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
+                          <td class="px-3 py-2 font-bold text-slate-900">${escapeHtml(p.itemDetails || p.productName || '-')}</td>
+                          <td class="px-3 py-2 font-mono text-slate-600 font-semibold">${escapeHtml(p.partNumber || '-')}</td>
+                          <td class="px-3 py-2 text-center font-extrabold ${qty > 0 ? 'text-emerald-700' : 'text-slate-400'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '0'}</td>
+                          <td class="px-3 py-2 text-center text-slate-500">${escapeHtml(p.unit || 'Pcs.')}</td>
+                          <td class="px-3 py-2 text-right font-mono font-bold">₹${p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00')}</td>
+                          <td class="px-3 py-2 text-center"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">${escapeHtml(p.group || p.parentGroup || '-')}</span></td>
+                          <td class="px-3 py-2 text-center font-mono font-bold text-slate-800"><span class="px-2 py-0.5 rounded bg-amber-100/70 text-amber-900 border border-amber-200">${escapeHtml(p.rack || '-')}</span></td>
+                          <td class="px-3 py-2 text-center">
+                            <button type="button" data-add-to-order="${escapeHtml(p.id || p.partNumber)}"
+                              class="px-2.5 py-1 bg-slate-900 hover:bg-emerald-600 text-white rounded text-[11px] font-bold transition">
+                              + Add to Order
+                            </button>
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Mobile Cards -->
+              <div class="md:hidden p-3 space-y-2.5">
+                ${matchingProds.map(p => {
+                  const qty = getNumericStock(p.stockQty);
+                  return `
+                    <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1.5">
+                      <div class="font-bold text-slate-900">${escapeHtml(p.itemDetails || p.productName || '-')}</div>
+                      <div class="grid grid-cols-2 gap-1.5 text-[11px] text-slate-600 pt-1 border-t border-slate-200/60">
+                        <div>Part: <b class="font-mono text-slate-800">${escapeHtml(p.partNumber || '-')}</b></div>
+                        <div>Qty: <b class="${qty > 0 ? 'text-emerald-700' : 'text-slate-500'}">${p.stockQty !== null && p.stockQty !== undefined ? p.stockQty : '0'}</b> ${escapeHtml(p.unit || 'Pcs.')}</div>
+                        <div>MRP: <b class="text-slate-800">₹${p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00')}</b></div>
+                        <div>Rack: <b class="text-amber-800 font-mono">${escapeHtml(p.rack || '-')}</b></div>
+                        <div class="col-span-2">Group: <b class="text-slate-700">${escapeHtml(p.group || p.parentGroup || '-')}</b></div>
+                      </div>
+                      <div class="pt-1 flex justify-end">
+                        <button type="button" data-add-to-order="${escapeHtml(p.id || p.partNumber)}"
+                          class="px-3 py-1 bg-slate-900 hover:bg-emerald-600 text-white rounded text-[11px] font-bold transition">
+                          + Add to Order
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            ` : `
+              <div class="p-3 text-center text-slate-400 text-xs">
+                No products in this rack match the search query.
+              </div>
+            `}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  // Bind drilldown buttons
+  container.querySelectorAll('[data-rack-select]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedRackId = btn.dataset.rackSelect;
+      activeView = 'sections';
+      renderCurrentView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  // Bind "+ Add to Order" buttons
+  container.querySelectorAll('[data-add-to-order]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prodKey = btn.dataset.addToOrder;
+      const product = currentProductMaster.find(p => p.id === prodKey || p.partNumber === prodKey);
+      if (product) {
+        const item = addOrderItem(product.itemDetails || product.productName, 1);
+        item.matchedProduct = product;
+        item.isManual = true;
+        item.confidence = 100;
+        item.tier = 'HIGH';
+        renderOrderTable();
+        showToast(`Added "${product.productName || product.partNumber}" to order`, 'success');
+      }
+    });
+  });
 }
 
 function renderRackCards(container, racks) {
@@ -479,16 +668,16 @@ function renderRackSectionsView(container) {
     <div class="map-scroll-container">
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         ${sectionsList.map(sec => {
-          const secProds = sec.products || [];
-          const sCount = secProds.length;
-          let sQty = 0;
-          secProds.forEach(p => {
-            sQty += getNumericStock(p.allocatedQty);
-          });
+    const secProds = sec.products || [];
+    const sCount = secProds.length;
+    let sQty = 0;
+    secProds.forEach(p => {
+      sQty += getNumericStock(p.allocatedQty);
+    });
 
-          const subSecCount = sec.subSectionMap.size;
+    const subSecCount = sec.subSectionMap.size;
 
-          return `
+    return `
             <button type="button" data-section-select="${sec.code}"
               class="text-left p-3.5 rounded-xl border border-slate-200 hover:border-emerald-500 bg-white hover:bg-emerald-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[110px]">
               <div>
@@ -509,7 +698,7 @@ function renderRackSectionsView(container) {
               </div>
             </button>
           `;
-        }).join('')}
+  }).join('')}
       </div>
     </div>
   `;
@@ -626,19 +815,19 @@ function renderSectionProductsView(container) {
               All (${totalProducts} items • Qty: ${totalQuantity})
             </button>
             ${subSectionEntries.map(([subCode, subInfo]) => {
-              const subProds = subInfo.products || [];
-              let subQty = 0;
-              subProds.forEach(p => { subQty += getNumericStock(p.allocatedQty); });
-              const isSelected = selectedSubSectionFilter === subCode;
+    const subProds = subInfo.products || [];
+    let subQty = 0;
+    subProds.forEach(p => { subQty += getNumericStock(p.allocatedQty); });
+    const isSelected = selectedSubSectionFilter === subCode;
 
-              return `
+    return `
                 <button type="button" data-sub-filter="${escapeHtml(subCode)}"
                   class="px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${isSelected ? 'bg-emerald-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}">
                   <span>Sub-section ${escapeHtml(subCode)}</span>
                   <span class="text-[10px] opacity-80">(${subProds.length} • Qty: ${subQty})</span>
                 </button>
               `;
-            }).join('')}
+  }).join('')}
           </div>
         </div>
       ` : ''}
@@ -676,8 +865,8 @@ function renderSectionProductsView(container) {
               </thead>
               <tbody class="divide-y divide-slate-100 text-slate-800">
                 ${displayedProducts.map((p, idx) => {
-                  const qty = getNumericStock(p.allocatedQty);
-                  return `
+    const qty = getNumericStock(p.allocatedQty);
+    return `
                     <tr class="hover:bg-slate-50/80 transition">
                       <td class="px-3 py-2 text-center text-slate-400 font-mono">${idx + 1}</td>
                       <td class="px-3 py-2 font-bold text-slate-900">
@@ -701,7 +890,7 @@ function renderSectionProductsView(container) {
                       <td class="px-3 py-2 text-center font-mono text-slate-500">${escapeHtml(p.rack || '-')}</td>
                     </tr>
                   `;
-                }).join('')}
+  }).join('')}
               </tbody>
             </table>
           </div>
@@ -710,8 +899,8 @@ function renderSectionProductsView(container) {
         <!-- Mobile Cards View with Scroll -->
         <div class="responsive-card-view map-scroll-container p-1 space-y-2.5">
           ${displayedProducts.map(p => {
-            const qty = getNumericStock(p.allocatedQty);
-            return `
+    const qty = getNumericStock(p.allocatedQty);
+    return `
               <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
                 <div class="flex items-start justify-between gap-2">
                   <div class="font-bold text-xs text-slate-900 leading-tight">
@@ -735,7 +924,7 @@ function renderSectionProductsView(container) {
                 </div>
               </div>
             `;
-          }).join('')}
+  }).join('')}
         </div>
       `}
     </div>

@@ -4,7 +4,7 @@
  * Provides high-accuracy coordinate column extraction and field normalization
  */
 
-import { upsertProducts } from './db.js';
+import { upsertProducts, generateUniqueId } from './db.js';
 import { invalidateSearchCache } from './productSearch.js';
 
 // Table column boundaries for Busy / Maharashtra Automobile stock report layouts
@@ -185,7 +185,10 @@ export async function extractProductsFromPDF(file, onProgress = null) {
     }
   }
 
-  const rawProducts = Array.from(productMap.values());
+  const rawProducts = Array.from(productMap.values()).map(p => ({
+    ...p,
+    id: p.id || generateUniqueId()
+  }));
 
   return {
     products: rawProducts,
@@ -398,8 +401,10 @@ export async function extractProductsFromExcel(file, onProgress = null) {
   }
 
   // Fallback positional if standard layout
+  let startRow = 0;
   if (headerRowIndex === -1) {
-    headerRowIndex = 0;
+    // When no header is detected, data starts at row 0 (preserve row 0)
+    startRow = 0;
     colIndexMap.itemDetails = 0;
     colIndexMap.qty = 1;
     colIndexMap.unit = 2;
@@ -407,6 +412,8 @@ export async function extractProductsFromExcel(file, onProgress = null) {
     colIndexMap.rack = 4;
     colIndexMap.group = 5;
   } else {
+    // Header detected; data starts on the next row
+    startRow = headerRowIndex + 1;
     // If group wasn't matched directly, check if any column header has "group"
     if (colIndexMap.group === -1) {
       const headerRow = rows[headerRowIndex].map(c => String(c || '').trim().toLowerCase());
@@ -415,10 +422,10 @@ export async function extractProductsFromExcel(file, onProgress = null) {
     }
   }
 
-  const productMap = new Map();
+  const products = [];
   const warnings = [];
 
-  for (let r = headerRowIndex + 1; r < rows.length; r++) {
+  for (let r = startRow; r < rows.length; r++) {
     const row = rows[r];
     if (!row || row.length === 0) continue;
 
@@ -461,6 +468,7 @@ export async function extractProductsFromExcel(file, onProgress = null) {
     const group = (rawGroup === '-' || rawGroup === '—') ? '' : rawGroup;
 
     const productRecord = {
+      id: generateUniqueId(),
       partNumber: parsed.partNumber,
       productName: parsed.productName,
       itemDetails: parsed.itemDetails || rawItemDetails,
@@ -472,40 +480,16 @@ export async function extractProductsFromExcel(file, onProgress = null) {
       rack,
       rate,
       mrp: rate,
-      page: 1
+      page: 1,
+      sourceRow: r + 1
     };
 
-    const key = parsed.partNumber;
-    if (productMap.has(key)) {
-      const prev = productMap.get(key);
-      if (productRecord.stockQty !== null && productRecord.stockQty > 0 && (prev.stockQty === null || prev.stockQty <= 0)) {
-        productMap.set(key, { ...productRecord, alias: prev.alias || productRecord.alias });
-      } else if (prev.stockQty !== null && prev.stockQty > 0 && (productRecord.stockQty === null || productRecord.stockQty <= 0)) {
-        if (!prev.rack && productRecord.rack) prev.rack = productRecord.rack;
-        if (!prev.group && productRecord.group) {
-          prev.group = productRecord.group;
-          prev.parentGroup = productRecord.group;
-        }
-      } else if (productRecord.stockQty !== null && productRecord.stockQty > 0 && prev.stockQty !== null && prev.stockQty > 0) {
-        prev.stockQty = prev.stockQty + productRecord.stockQty;
-        if (!prev.rack && productRecord.rack) prev.rack = productRecord.rack;
-        if (!prev.group && productRecord.group) {
-          prev.group = productRecord.group;
-          prev.parentGroup = productRecord.group;
-        }
-      } else {
-        if (!prev.group && productRecord.group) {
-          prev.group = productRecord.group;
-          prev.parentGroup = productRecord.group;
-        }
-      }
-    } else {
-      productMap.set(key, productRecord);
-    }
+    // Every valid product row is preserved as a separate valid stock record
+    products.push(productRecord);
   }
 
   return {
-    products: Array.from(productMap.values()),
+    products,
     warnings,
     totalPages: 1
   };

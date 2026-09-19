@@ -3,11 +3,8 @@
  * Handles 6,000 to 10,000+ items smoothly with chunked transactions
  */
 
-import { INITIAL_PRODUCTS } from './sampleData.js';
-import { buildInitialRackConfigs, buildInitialCounterConfigs } from './mapConfigData.js';
-
-const DB_NAME = 'MaharashtraAutoPartsDB';
-const DB_VERSION = 2;
+export const DB_NAME = 'MaharashtraAutoPartsDB';
+export const DB_VERSION = 3;
 export const STORE_PRODUCTS = 'products';
 export const STORE_META = 'meta';
 export const STORE_RACK_CONFIG = 'rackMapConfig';
@@ -16,17 +13,61 @@ export const STORE_COUNTER_MAPPINGS = 'counterProductMapping';
 
 let dbInstance = null;
 
+/**
+ * Generate unique product identifier (UUID or secure fallback)
+ */
+export function generateUniqueId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'prod_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+}
+
 export async function getDB() {
   if (dbInstance) return dbInstance;
 
   // Determine target version safely against browser storage
   let targetVersion = DB_VERSION;
+  let existingOldProducts = [];
+
   if (typeof indexedDB !== 'undefined' && typeof indexedDB.databases === 'function') {
     try {
       const dbs = await indexedDB.databases();
       const existing = dbs.find((d) => d.name === DB_NAME);
-      if (existing && existing.version && existing.version > targetVersion) {
-        targetVersion = existing.version;
+      if (existing && existing.version) {
+        if (existing.version > targetVersion) {
+          targetVersion = existing.version;
+        } else if (existing.version < DB_VERSION) {
+          // Read existing products before schema upgrade to preserve existing data safely
+          existingOldProducts = await new Promise((res) => {
+            const oldReq = indexedDB.open(DB_NAME, existing.version);
+            oldReq.onsuccess = () => {
+              const oldDb = oldReq.result;
+              if (oldDb.objectStoreNames.contains(STORE_PRODUCTS)) {
+                try {
+                  const tx = oldDb.transaction(STORE_PRODUCTS, 'readonly');
+                  const getAllReq = tx.objectStore(STORE_PRODUCTS).getAll();
+                  getAllReq.onsuccess = () => {
+                    const items = getAllReq.result || [];
+                    oldDb.close();
+                    res(items);
+                  };
+                  getAllReq.onerror = () => {
+                    oldDb.close();
+                    res([]);
+                  };
+                } catch (err) {
+                  oldDb.close();
+                  res([]);
+                }
+              } else {
+                oldDb.close();
+                res([]);
+              }
+            };
+            oldReq.onerror = () => res([]);
+          });
+        }
       }
     } catch (e) {
       // ignore
@@ -38,9 +79,16 @@ export async function getDB() {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const oldVersion = event.oldVersion;
+
+      // Migrate existing STORE_PRODUCTS store if it was keyed on 'partNumber' in version < 3
+      if (oldVersion < 3 && db.objectStoreNames.contains(STORE_PRODUCTS)) {
+        db.deleteObjectStore(STORE_PRODUCTS);
+      }
 
       if (!db.objectStoreNames.contains(STORE_PRODUCTS)) {
-        const productStore = db.createObjectStore(STORE_PRODUCTS, { keyPath: 'partNumber' });
+        const productStore = db.createObjectStore(STORE_PRODUCTS, { keyPath: 'id' });
+        productStore.createIndex('partNumber', 'partNumber', { unique: false });
         productStore.createIndex('productName', 'productName', { unique: false });
         productStore.createIndex('rack', 'rack', { unique: false });
       }
@@ -64,8 +112,29 @@ export async function getDB() {
       }
     };
 
-    request.onsuccess = (event) => {
+    request.onsuccess = async (event) => {
       dbInstance = event.target.result;
+
+      // If we extracted existing products during version upgrade, restore them with id
+      if (existingOldProducts && existingOldProducts.length > 0) {
+        try {
+          const tx = dbInstance.transaction(STORE_PRODUCTS, 'readwrite');
+          const store = tx.objectStore(STORE_PRODUCTS);
+          for (const item of existingOldProducts) {
+            if (!item.id) {
+              item.id = generateUniqueId();
+            }
+            store.put(item);
+          }
+          await new Promise((res) => {
+            tx.oncomplete = () => res();
+            tx.onerror = () => res();
+          });
+        } catch (e) {
+          console.warn('Migration restore warning:', e);
+        }
+      }
+
       resolve(dbInstance);
     };
 
@@ -107,17 +176,32 @@ export async function countProducts() {
 }
 
 /**
- * Get product by Part Number
+ * Get product by Part Number or ID
  */
-export async function getProduct(partNumber) {
-  if (!partNumber) return null;
+export async function getProduct(key) {
+  if (!key) return null;
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_PRODUCTS, 'readonly');
     const store = tx.objectStore(STORE_PRODUCTS);
-    const req = store.get(partNumber.trim().toUpperCase());
+    const cleanKey = String(key).trim();
 
-    req.onsuccess = () => resolve(req.result || null);
+    // 1. Try direct primary key (id) lookup
+    const req = store.get(cleanKey);
+    req.onsuccess = () => {
+      if (req.result) {
+        resolve(req.result);
+        return;
+      }
+      // 2. Fallback: Lookup by partNumber index for backward compatibility
+      if (store.indexNames && store.indexNames.contains('partNumber')) {
+        const idxReq = store.index('partNumber').get(cleanKey.toUpperCase());
+        idxReq.onsuccess = () => resolve(idxReq.result || null);
+        idxReq.onerror = () => reject(idxReq.error);
+      } else {
+        resolve(null);
+      }
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -172,72 +256,23 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
     await clearProductStore();
   }
 
-  // Deduplicate and merge products by partNumber
-  const productMap = new Map();
-  for (const item of products) {
-    if (!item.partNumber) continue;
-    const key = String(item.partNumber).trim().toUpperCase();
-    if (productMap.has(key)) {
-      const prev = productMap.get(key);
-      const currStock = (item.stockQty !== null && item.stockQty !== undefined && item.stockQty !== '') ? Number(item.stockQty) : null;
-      const prevStock = (prev.stockQty !== null && prev.stockQty !== undefined && prev.stockQty !== '') ? Number(prev.stockQty) : null;
-
-      if (currStock !== null && currStock > 0 && (prevStock === null || prevStock <= 0)) {
-        productMap.set(key, {
-          ...item,
-          alias: prev.alias || item.alias,
-          parentGroup: item.parentGroup || item.group || prev.parentGroup || prev.group || '',
-          group: item.group || item.parentGroup || prev.group || prev.parentGroup || ''
-        });
-      } else if (prevStock !== null && prevStock > 0 && (currStock === null || currStock <= 0)) {
-        if (!prev.rack && item.rack) prev.rack = item.rack;
-        if (!prev.rate && item.rate) prev.rate = item.rate;
-        if (!prev.alias && item.alias) prev.alias = item.alias;
-        if (!prev.parentGroup && (item.parentGroup || item.group)) {
-          prev.parentGroup = item.parentGroup || item.group;
-          prev.group = prev.parentGroup;
-        }
-      } else if (currStock !== null && currStock > 0 && prevStock !== null && prevStock > 0) {
-        prev.stockQty = prevStock + currStock;
-        if (!prev.rack && item.rack) prev.rack = item.rack;
-        if (!prev.rate && item.rate) prev.rate = item.rate;
-        if (!prev.parentGroup && (item.parentGroup || item.group)) {
-          prev.parentGroup = item.parentGroup || item.group;
-          prev.group = prev.parentGroup;
-        }
-      } else {
-        const prevScore = (prev.rack ? 2 : 0) + (prev.rate ? 2 : 0) + (String(prev.productName || '').length > 5 ? 1 : 0);
-        const currScore = (item.rack ? 2 : 0) + (item.rate ? 2 : 0) + (String(item.productName || '').length > 5 ? 1 : 0);
-        if (currScore > prevScore) {
-          productMap.set(key, {
-            ...item,
-            alias: prev.alias || item.alias,
-            parentGroup: item.parentGroup || item.group || prev.parentGroup || prev.group || '',
-            group: item.group || item.parentGroup || prev.group || prev.parentGroup || ''
-          });
-        }
-      }
-    } else {
-      productMap.set(key, item);
-    }
-  }
-
-  const dedupedProducts = Array.from(productMap.values());
   const chunkSize = 500;
-  const total = dedupedProducts.length;
+  const total = products.length;
   let processed = 0;
 
   for (let i = 0; i < total; i += chunkSize) {
-    const chunk = dedupedProducts.slice(i, i + chunkSize);
+    const chunk = products.slice(i, i + chunkSize);
     
     await new Promise((resolve, reject) => {
       const tx = db.transaction([STORE_PRODUCTS], 'readwrite');
       const store = tx.objectStore(STORE_PRODUCTS);
 
       for (const item of chunk) {
-        if (!item.partNumber) continue;
+        const rawPart = item.partNumber || item.productName || item.itemDetails;
+        if (!rawPart) continue;
 
-        const partNumber = String(item.partNumber).trim().toUpperCase();
+        const id = item.id || generateUniqueId();
+        const partNumber = String(rawPart).trim().toUpperCase();
         const productName = String(item.productName || '').trim().toUpperCase();
         const alias = item.alias !== undefined && item.alias !== null ? String(item.alias).trim() : '';
         const rawGroup = item.parentGroup || item.group || '';
@@ -273,6 +308,7 @@ export async function upsertProducts(products, isReplace = false, onProgress = n
         const itemDetails = item.itemDetails ? String(item.itemDetails).trim() : (partNumber + ' ' + productName).trim();
 
         const normalized = {
+          id,
           partNumber,
           productName,
           itemDetails,
@@ -529,15 +565,15 @@ export async function removeProductFromCounter(mappingId) {
 }
 
 /**
- * Update rack location for a specific product by partNumber
+ * Update rack location for a specific product by ID or partNumber
  */
-export async function updateProductRack(partNumber, newRack) {
-  if (!partNumber) return false;
+export async function updateProductRack(productIdOrPartNumber, newRack) {
+  if (!productIdOrPartNumber) return false;
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([STORE_PRODUCTS], 'readwrite');
     const store = tx.objectStore(STORE_PRODUCTS);
-    const key = String(partNumber).trim().toUpperCase();
+    const key = String(productIdOrPartNumber).trim();
     const getReq = store.get(key);
 
     getReq.onsuccess = () => {
@@ -546,6 +582,16 @@ export async function updateProductRack(partNumber, newRack) {
         item.rack = (newRack || '').trim();
         item.updatedAt = new Date().toISOString();
         store.put(item);
+      } else if (store.indexNames && store.indexNames.contains('partNumber')) {
+        const pReq = store.index('partNumber').get(key.toUpperCase());
+        pReq.onsuccess = () => {
+          const pItem = pReq.result;
+          if (pItem) {
+            pItem.rack = (newRack || '').trim();
+            pItem.updatedAt = new Date().toISOString();
+            store.put(pItem);
+          }
+        };
       }
     };
 
