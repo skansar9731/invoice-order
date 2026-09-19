@@ -20,6 +20,9 @@ import {
   renderOrderTable,
   initUIEventListeners,
   showToast,
+  showConfirmModal,
+  showPromptModal,
+  showAlertModal,
   refreshDashboardStats,
   handleGeneratePDFClick,
   formatItemDetails,
@@ -280,8 +283,16 @@ function initOrderEntryEvents() {
 
   // New Order Button
   if (btnNewOrder) {
-    btnNewOrder.addEventListener('click', () => {
-      if (confirm('Start a new order? This will clear the current session and all uploaded images.')) {
+    btnNewOrder.addEventListener('click', async () => {
+      const confirmed = await showConfirmModal({
+        title: 'Start New Order?',
+        message: 'Start a new order? This will clear the current session and all uploaded images.',
+        confirmText: 'Start New Order',
+        cancelText: 'Keep Current',
+        type: 'danger',
+        icon: '📄'
+      });
+      if (confirmed) {
         clearAllImages(false);
         showToast('New order session started', 'info');
       }
@@ -366,13 +377,36 @@ function initOrderEntryEvents() {
 
   // Add Manual Item Button
   if (btnAddManualItem) {
-    btnAddManualItem.addEventListener('click', () => {
-      const itemName = prompt('Enter customer item name / description:');
-      if (itemName && itemName.trim()) {
-        const qtyStr = prompt('Enter ordered quantity:', '1');
-        const qty = parseInt(qtyStr, 10) || 1;
-        addOrderItem(itemName.trim(), qty);
-        showToast(`Added "${itemName.trim()}" to order`, 'info');
+    btnAddManualItem.addEventListener('click', async () => {
+      const result = await showPromptModal({
+        title: 'Add Item Manually',
+        message: 'Enter customer wording or item description and ordered quantity:',
+        fields: [
+          {
+            id: 'itemName',
+            label: 'Customer Item Name / Description',
+            placeholder: 'e.g. BRAKE PAD FRONT TATA ACE',
+            required: true
+          },
+          {
+            id: 'quantity',
+            label: 'Ordered Quantity',
+            type: 'number',
+            value: '1',
+            min: '1',
+            required: true
+          }
+        ],
+        confirmText: 'Add to Order',
+        cancelText: 'Cancel',
+        icon: '➕'
+      });
+
+      if (result && result.itemName && result.itemName.trim()) {
+        const qty = parseInt(result.quantity, 10) || 1;
+        addOrderItem(result.itemName.trim(), Math.max(1, qty));
+        renderOrderTable();
+        showToast(`Added "${result.itemName.trim()}" (${Math.max(1, qty)} pcs) to order`, 'success');
       }
     });
   }
@@ -871,9 +905,14 @@ function initStockImportEvents() {
   if (btnReplaceMaster) {
     btnReplaceMaster.addEventListener('click', async () => {
       if (!pendingImportData) return;
-      const confirmed = confirm(
-        '⚠ CAUTION: Replace Product Master will DELETE all current local products and replace them with this file.\n\nAre you sure you want to proceed?'
-      );
+      const confirmed = await showConfirmModal({
+        title: 'Replace Entire Product Master?',
+        message: 'CAUTION: Replace Product Master will DELETE all current local products and replace them with this file.\n\nAre you sure you want to proceed?',
+        confirmText: 'Replace All Products',
+        cancelText: 'Cancel',
+        type: 'danger',
+        icon: '⚠'
+      });
       if (confirmed) {
         await executeStockImport(true);
       }
@@ -883,7 +922,14 @@ function initStockImportEvents() {
   // Clear Master Action
   if (btnClearMaster) {
     btnClearMaster.addEventListener('click', async () => {
-      const confirmed = confirm('⚠ DANGER: Are you sure you want to completely clear the local product database?');
+      const confirmed = await showConfirmModal({
+        title: 'Clear Local Product Master?',
+        message: 'DANGER: Are you sure you want to completely clear the local product database from this device?\n\nAll existing product records will be removed.',
+        confirmText: 'Clear Entire Database',
+        cancelText: 'Cancel',
+        type: 'danger',
+        icon: '🗑'
+      });
       if (confirmed) {
         await clearProductStore();
         invalidateSearchCache();
@@ -896,7 +942,14 @@ function initStockImportEvents() {
   // Reset to Sample Master
   if (btnResetSampleMaster) {
     btnResetSampleMaster.addEventListener('click', async () => {
-      const confirmed = confirm('Reset local database to initial demo spare-parts catalogue?');
+      const confirmed = await showConfirmModal({
+        title: 'Reset to Demo Catalogue?',
+        message: 'Are you sure you want to reset the local database to the initial demo spare-parts catalogue?',
+        confirmText: 'Reset Database',
+        cancelText: 'Cancel',
+        type: 'warning',
+        icon: '🔄'
+      });
       if (confirmed) {
         await upsertProducts(INITIAL_PRODUCTS, true, null, {
           fileName: 'Initial_Demo_Catalogue.pdf',

@@ -43,43 +43,569 @@ export function formatItemDetails(p) {
 
 /**
  * Toast Notification System
+ * Appears top-right on desktop, top-center on mobile.
+ * Features auto-dismiss, manual dismiss, and distinct icons/colors.
  */
 export function showToast(message, type = 'info', duration = 3500) {
-  const container = document.getElementById('toast-container');
-  if (!container) return;
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'fixed top-4 right-4 left-4 sm:left-auto sm:right-5 sm:w-96 z-[9999] flex flex-col gap-2.5 pointer-events-none';
+    document.body.appendChild(container);
+  }
 
   const toast = document.createElement('div');
-  const colors = {
-    success: 'bg-emerald-600 text-white border-emerald-500',
-    error: 'bg-rose-600 text-white border-rose-500',
-    warning: 'bg-amber-500 text-slate-900 border-amber-400',
-    info: 'bg-slate-800 text-white border-slate-700'
+
+  const configs = {
+    success: {
+      card: 'bg-slate-900/95 text-white border-emerald-500/50 shadow-emerald-950/25',
+      badge: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
+      icon: '✓'
+    },
+    error: {
+      card: 'bg-slate-900/95 text-white border-rose-500/50 shadow-rose-950/25',
+      badge: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+      icon: '✕'
+    },
+    warning: {
+      card: 'bg-slate-900/95 text-white border-amber-500/50 shadow-amber-950/25',
+      badge: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+      icon: '⚠'
+    },
+    info: {
+      card: 'bg-slate-900/95 text-white border-sky-500/50 shadow-sky-950/25',
+      badge: 'bg-sky-500/20 text-sky-400 border border-sky-500/30',
+      icon: 'ℹ'
+    }
   };
 
-  const icons = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ'
-  };
+  const cfg = configs[type] || configs.info;
 
-  toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium transform transition-all duration-300 translate-y-2 opacity-0 ${colors[type] || colors.info}`;
+  toast.className = `pointer-events-auto flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border backdrop-blur-md shadow-xl text-xs sm:text-sm font-medium transform transition-all duration-300 -translate-y-2 opacity-0 ${cfg.card}`;
+
   toast.innerHTML = `
-    <span class="text-base font-bold">${icons[type] || 'ℹ'}</span>
-    <span class="flex-1">${message}</span>
+    <span class="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs ${cfg.badge}">
+      ${cfg.icon}
+    </span>
+    <span class="flex-1 leading-snug break-words pt-0.5">${escapeHtml(String(message || ''))}</span>
+    <button type="button" class="toast-close-btn flex-shrink-0 text-slate-400 hover:text-white transition p-1 -mr-1 -mt-1 rounded-md text-xs font-bold leading-none" aria-label="Dismiss notification">
+      ✕
+    </button>
   `;
+
+  let dismissTimeout = null;
+  const dismiss = () => {
+    if (dismissTimeout) clearTimeout(dismissTimeout);
+    toast.classList.add('opacity-0', '-translate-y-2');
+    setTimeout(() => {
+      try { toast.remove(); } catch (_) {}
+    }, 250);
+  };
+
+  const closeBtn = toast.querySelector('.toast-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismiss();
+    });
+  }
 
   container.appendChild(toast);
 
-  // Trigger animation
+  // Trigger entrance animation
   requestAnimationFrame(() => {
-    toast.classList.remove('translate-y-2', 'opacity-0');
+    toast.classList.remove('-translate-y-2', 'opacity-0');
   });
 
-  setTimeout(() => {
-    toast.classList.add('opacity-0', 'translate-y-2');
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+  if (duration && duration > 0) {
+    dismissTimeout = setTimeout(dismiss, duration);
+  }
+
+  return { dismiss };
+}
+
+/**
+ * Show an Accessible Confirmation Modal
+ * Replaces native confirm() with an in-app dialog
+ * @param {Object} options
+ * @param {string} options.title - Modal title
+ * @param {string} options.message - Confirmation prompt message
+ * @param {string} [options.confirmText='Confirm'] - Confirm button label
+ * @param {string} [options.cancelText='Cancel'] - Cancel button label
+ * @param {'primary'|'danger'|'warning'|'info'} [options.type='primary'] - Modal visual style
+ * @param {string} [options.icon] - Optional custom icon
+ * @returns {Promise<boolean>} Resolves true if confirmed, false if cancelled
+ */
+export function showConfirmModal({
+  title = 'Confirmation',
+  message = 'Are you sure you want to proceed?',
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  type = 'primary',
+  icon = null
+} = {}) {
+  return new Promise((resolve) => {
+    const defaultIcons = {
+      danger: '🗑',
+      warning: '⚠',
+      info: 'ℹ',
+      primary: '✓'
+    };
+    const modalIcon = icon || defaultIcons[type] || '❓';
+
+    const btnStyles = {
+      danger: 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-900/20 ring-rose-500',
+      warning: 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-900/20 ring-amber-500',
+      info: 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-900/20 ring-sky-500',
+      primary: 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20 ring-slate-900'
+    };
+
+    const iconBadgeStyles = {
+      danger: 'bg-rose-100 text-rose-700 border-rose-200',
+      warning: 'bg-amber-100 text-amber-800 border-amber-200',
+      info: 'bg-sky-100 text-sky-700 border-sky-200',
+      primary: 'bg-slate-100 text-slate-800 border-slate-200'
+    };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10000] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    // Split multiline message into readable paragraphs
+    const formattedMessage = message
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => `<p class="leading-relaxed">${escapeHtml(line)}</p>`)
+      .join('<div class="h-2"></div>');
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border shadow-xs ${iconBadgeStyles[type] || iconBadgeStyles.primary}">
+              ${modalIcon}
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">${escapeHtml(title)}</h3>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Body Message -->
+        <div class="p-5 text-sm text-slate-600 space-y-1">
+          ${formattedMessage}
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
+          <button type="button" class="btn-cancel w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 font-bold text-xs sm:text-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-400">
+            ${escapeHtml(cancelText)}
+          </button>
+          <button type="button" class="btn-confirm w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${btnStyles[type] || btnStyles.primary}">
+            ${escapeHtml(confirmText)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const btnConfirm = overlay.querySelector('.btn-confirm');
+    const btnCancel = overlay.querySelector('.btn-cancel');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+
+    let isClosed = false;
+    const finish = (result) => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+      }, 200);
+      resolve(result);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+
+    btnConfirm.addEventListener('click', () => finish(true));
+    btnCancel.addEventListener('click', () => finish(false));
+    btnCloseX.addEventListener('click', () => finish(false));
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        finish(false);
+      }
+    });
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Entrance animation & focus
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      if (type === 'danger') {
+        btnCancel.focus();
+      } else {
+        btnConfirm.focus();
+      }
+    });
+  });
+}
+
+/**
+ * Show an Accessible Prompt / Input Modal
+ * Supports single field (returns string | null) or multiple fields (returns object | null)
+ * @param {Object} options
+ * @param {string} options.title - Modal title
+ * @param {string} [options.message] - Optional instructions or label
+ * @param {string} [options.label] - Field label for single input
+ * @param {string} [options.value=''] - Initial value for single input
+ * @param {string} [options.placeholder=''] - Placeholder for single input
+ * @param {string} [options.inputType='text'] - Type for single input (text, number, etc.)
+ * @param {Array<Object>} [options.fields] - Array of field objects { id, label, value, placeholder, type, required, min, max }
+ * @param {string} [options.confirmText='Save'] - Confirm button label
+ * @param {string} [options.cancelText='Cancel'] - Cancel button label
+ * @param {string} [options.icon='✏'] - Icon for the modal
+ * @returns {Promise<string | object | null>} Returns string or fields object on submit, or null on cancel
+ */
+export function showPromptModal({
+  title = 'Input Required',
+  message = '',
+  label = '',
+  value = '',
+  placeholder = '',
+  inputType = 'text',
+  fields = null,
+  confirmText = 'Save',
+  cancelText = 'Cancel',
+  icon = '✏'
+} = {}) {
+  return new Promise((resolve) => {
+    const isMultiField = Array.isArray(fields) && fields.length > 0;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10000] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    // Build form inputs HTML
+    let inputsHtml = '';
+    if (isMultiField) {
+      inputsHtml = fields.map((f, idx) => `
+        <div class="space-y-1">
+          <label for="prompt-field-${idx}" class="block text-xs font-bold text-slate-700">
+            ${escapeHtml(f.label || f.id)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}
+          </label>
+          <input
+            id="prompt-field-${idx}"
+            data-field-id="${escapeHtml(f.id)}"
+            type="${f.type || 'text'}"
+            value="${escapeHtml(String(f.value ?? ''))}"
+            placeholder="${escapeHtml(f.placeholder || '')}"
+            ${f.required ? 'required' : ''}
+            ${f.min !== undefined ? `min="${f.min}"` : ''}
+            ${f.max !== undefined ? `max="${f.max}"` : ''}
+            class="prompt-input-el w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all"
+          />
+        </div>
+      `).join('');
+    } else {
+      inputsHtml = `
+        <div class="space-y-1">
+          ${label ? `<label for="prompt-single-input" class="block text-xs font-bold text-slate-700">${escapeHtml(label)}</label>` : ''}
+          <input
+            id="prompt-single-input"
+            type="${inputType || 'text'}"
+            value="${escapeHtml(String(value ?? ''))}"
+            placeholder="${escapeHtml(placeholder || '')}"
+            class="prompt-input-el w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all"
+          />
+        </div>
+      `;
+    }
+
+    const messageHtml = message ? `
+      <div class="text-xs sm:text-sm text-slate-500 mb-3">
+        ${escapeHtml(message)}
+      </div>
+    ` : '';
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border border-slate-200 bg-white text-slate-800 shadow-xs">
+              ${icon}
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">${escapeHtml(title)}</h3>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Form Body -->
+        <form class="prompt-form p-5 space-y-3">
+          ${messageHtml}
+          ${inputsHtml}
+          <div id="prompt-error-msg" class="hidden text-xs font-semibold text-rose-600"></div>
+        </form>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
+          <button type="button" class="btn-cancel w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 font-bold text-xs sm:text-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-400">
+            ${escapeHtml(cancelText)}
+          </button>
+          <button type="button" class="btn-submit w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1">
+            ${escapeHtml(confirmText)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const form = overlay.querySelector('.prompt-form');
+    const btnSubmit = overlay.querySelector('.btn-submit');
+    const btnCancel = overlay.querySelector('.btn-cancel');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+    const errorEl = overlay.querySelector('#prompt-error-msg');
+    const inputEls = Array.from(overlay.querySelectorAll('.prompt-input-el'));
+
+    let isClosed = false;
+    const finish = (result) => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+      }, 200);
+      resolve(result);
+    };
+
+    const handleSubmit = () => {
+      if (isMultiField) {
+        const res = {};
+        for (const input of inputEls) {
+          const fieldId = input.dataset.fieldId;
+          const fieldDef = fields.find(f => f.id === fieldId);
+          const val = input.value.trim();
+          if (fieldDef && fieldDef.required && !val) {
+            if (errorEl) {
+              errorEl.textContent = `Please enter ${fieldDef.label || fieldDef.id}.`;
+              errorEl.classList.remove('hidden');
+            }
+            input.focus();
+            return;
+          }
+          res[fieldId] = input.value;
+        }
+        finish(res);
+      } else {
+        const val = inputEls[0] ? inputEls[0].value : '';
+        finish(val);
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+      } else if (e.key === 'Enter' && e.target.classList.contains('prompt-input-el')) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleSubmit();
+    });
+    btnSubmit.addEventListener('click', handleSubmit);
+    btnCancel.addEventListener('click', () => finish(null));
+    btnCloseX.addEventListener('click', () => finish(null));
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        finish(null);
+      }
+    });
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Entrance animation & focus
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      if (inputEls[0]) {
+        inputEls[0].focus();
+        if (typeof inputEls[0].select === 'function') {
+          inputEls[0].select();
+        }
+      }
+    });
+  });
+}
+
+/**
+ * Show an Accessible Alert Modal (user acknowledgment)
+ * Replaces native alert() when explicit user dismissal is required
+ * @param {Object} options
+ * @param {string} options.title - Modal title
+ * @param {string} options.message - Alert message
+ * @param {string} [options.buttonText='OK'] - Dismiss button label
+ * @param {'info'|'warning'|'error'|'success'} [options.type='info'] - Modal type
+ * @param {string} [options.icon] - Optional icon
+ * @returns {Promise<void>} Resolves when dismissed
+ */
+export function showAlertModal({
+  title = 'Notice',
+  message = '',
+  buttonText = 'OK',
+  type = 'info',
+  icon = null
+} = {}) {
+  return new Promise((resolve) => {
+    const defaultIcons = {
+      error: '✕',
+      warning: '⚠',
+      info: 'ℹ',
+      success: '✓'
+    };
+    const modalIcon = icon || defaultIcons[type] || 'ℹ';
+
+    const btnStyles = {
+      error: 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-900/20',
+      warning: 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-900/20',
+      info: 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20',
+      success: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/20'
+    };
+
+    const iconBadgeStyles = {
+      error: 'bg-rose-100 text-rose-700 border-rose-200',
+      warning: 'bg-amber-100 text-amber-800 border-amber-200',
+      info: 'bg-sky-100 text-sky-700 border-sky-200',
+      success: 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    };
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10000] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    const formattedMessage = message
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => `<p class="leading-relaxed">${escapeHtml(line)}</p>`)
+      .join('<div class="h-2"></div>');
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border shadow-xs ${iconBadgeStyles[type] || iconBadgeStyles.info}">
+              ${modalIcon}
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">${escapeHtml(title)}</h3>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Body Message -->
+        <div class="p-5 text-sm text-slate-600 space-y-1">
+          ${formattedMessage}
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+          <button type="button" class="btn-dismiss w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1 ${btnStyles[type] || btnStyles.info}">
+            ${escapeHtml(buttonText)}
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const btnDismiss = overlay.querySelector('.btn-dismiss');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+
+    let isClosed = false;
+    const finish = () => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+      }, 200);
+      resolve();
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        finish();
+      }
+    };
+
+    btnDismiss.addEventListener('click', finish);
+    btnCloseX.addEventListener('click', finish);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        finish();
+      }
+    });
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      btnDismiss.focus();
+    });
+  });
 }
 
 /**
@@ -573,7 +1099,15 @@ export function initUIEventListeners() {
       if (action === 'select-manual') {
         openManualSelectModal(itemId);
       } else if (action === 'remove') {
-        if (confirm('Are you sure you want to remove this item from the order?')) {
+        const confirmed = await showConfirmModal({
+          title: 'Remove Item from Order?',
+          message: 'Are you sure you want to remove this item from the order list?',
+          confirmText: 'Remove Item',
+          cancelText: 'Cancel',
+          type: 'danger',
+          icon: '🗑'
+        });
+        if (confirmed) {
           removeOrderItem(itemId);
           renderOrderTable();
           showToast('Item removed from order', 'info');
@@ -602,7 +1136,16 @@ export function initUIEventListeners() {
         const order = getCurrentOrder();
         const item = order.items.find(i => i.id === itemId);
         if (item) {
-          const newText = prompt('Edit customer handwritten wording:', item.customerText);
+          const newText = await showPromptModal({
+            title: 'Edit Customer Wording',
+            message: 'Modify handwritten/customer wording to re-match against the product master:',
+            label: 'Customer Item Description',
+            value: item.customerText || '',
+            placeholder: 'e.g. BRAKE PAD FRONT TATA ACE',
+            confirmText: 'Update & Match',
+            cancelText: 'Cancel',
+            icon: '✏'
+          });
           if (newText !== null && newText.trim()) {
             updateItemCustomerText(itemId, newText.trim());
             await rematchItem(itemId);
@@ -811,11 +1354,14 @@ export async function handleGeneratePDFClick() {
 
   const summary = getOrderSummary();
   if (summary.hasUnmatched) {
-    const proceed = confirm(
-      `⚠ WARNING: There are ${summary.unmatched} unmatched item(s) in this order.\n\n` +
-      `These items will be marked as [ UNMATCHED ] on the Busy entry sheet.\n\n` +
-      `Do you still want to generate and upload the PDF now?`
-    );
+    const proceed = await showConfirmModal({
+      title: 'Export PDF with Unmatched Items?',
+      message: `There are ${summary.unmatched} unmatched item(s) in this order.\n\nThese items will be marked as [ UNMATCHED ] on the Busy entry sheet.\n\nDo you still want to generate and upload the PDF now?`,
+      confirmText: 'Generate PDF',
+      cancelText: 'Review Items First',
+      type: 'warning',
+      icon: '⚠'
+    });
     if (!proceed) return;
   }
 
@@ -882,11 +1428,14 @@ export async function handleGenerateExcelClick() {
 
   const summary = getOrderSummary();
   if (summary.hasUnmatched) {
-    const proceed = confirm(
-      `⚠ WARNING: There are ${summary.unmatched} unmatched item(s) in this order.\n\n` +
-      `These items will be marked as [ UNMATCHED ] on the Busy entry spreadsheet.\n\n` +
-      `Do you still want to export and upload the Excel file now?`
-    );
+    const proceed = await showConfirmModal({
+      title: 'Export Excel with Unmatched Items?',
+      message: `There are ${summary.unmatched} unmatched item(s) in this order.\n\nThese items will be marked as [ UNMATCHED ] on the Busy entry spreadsheet.\n\nDo you still want to export and upload the Excel file now?`,
+      confirmText: 'Export Excel',
+      cancelText: 'Review Items First',
+      type: 'warning',
+      icon: '⚠'
+    });
     if (!proceed) return;
   }
 

@@ -95,12 +95,18 @@ table thead th {
    and screens ranging from 320px up to 767px.
    ========================================================================== */
 #toast-container {
-  bottom: 5.5rem;
+  top: 1rem;
+  right: 1rem;
+  left: 1rem;
+  bottom: auto;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   #toast-container {
-    bottom: 1.25rem;
+    top: 1.25rem;
+    right: 1.25rem;
+    left: auto;
+    max-width: 24rem;
   }
 }
 

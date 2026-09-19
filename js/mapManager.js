@@ -11,7 +11,7 @@ import {
   assignProductToCounter
 } from './db.js';
 import { generateSections } from './mapConfigData.js';
-import { showToast } from './ui.js';
+import { showToast, showConfirmModal, showPromptModal, showAlertModal } from './ui.js';
 import { loadCounterMap } from './counterMap.js';
 
 let activeManageTab = 'counters'; // 'counters'
@@ -115,8 +115,17 @@ async function promptRenameCounter(counterId) {
   const counter = counters.find(c => c.id === counterId);
   if (!counter) return;
 
-  const newName = prompt(`Enter new name for ${counter.name || counter.id}:`, counter.name || counter.id);
-  if (!newName) return;
+  const newName = await showPromptModal({
+    title: 'Rename Counter Station',
+    message: `Enter new display name for ${counter.name || counter.id}:`,
+    label: 'Counter Name',
+    value: counter.name || counter.id,
+    placeholder: 'e.g. Counter 1 - Front Desk',
+    confirmText: 'Save Name',
+    cancelText: 'Cancel',
+    icon: '✏'
+  });
+  if (!newName || !newName.trim()) return;
 
   counter.name = newName.trim();
   await saveCounterConfig(counter);
@@ -131,18 +140,37 @@ async function promptRenameCounter(counterId) {
 export async function promptAddSection(targetType, targetId) {
   if (targetType !== 'counter') return;
 
-  const code = prompt('Enter New Section Code (e.g. "AA", "Z1"):');
-  if (!code) return;
-  const cleanCode = code.trim().toUpperCase();
+  const result = await showPromptModal({
+    title: 'Add New Counter Section',
+    message: 'Enter section code (e.g. "AA", "Z1") and an optional display name:',
+    fields: [
+      {
+        id: 'code',
+        label: 'Section Code (e.g. "AA", "Z1")',
+        placeholder: 'e.g. AA',
+        required: true
+      },
+      {
+        id: 'displayName',
+        label: 'Display Name (optional)',
+        placeholder: 'e.g. Front Suspension & Brake'
+      }
+    ],
+    confirmText: 'Add Section',
+    cancelText: 'Cancel',
+    icon: '➕'
+  });
 
-  const displayName = prompt(`Enter Display Name for Section ${cleanCode} (optional):`, '');
+  if (!result || !result.code || !result.code.trim()) return;
+  const cleanCode = result.code.trim().toUpperCase();
+  const displayName = result.displayName || '';
 
   const counters = await getCounterConfigs();
   const counter = counters.find(c => c.id === targetId);
   if (!counter) return;
   if (!counter.sections) counter.sections = [];
   if (counter.sections.some(s => s.code === cleanCode && !s.archived)) {
-    alert(`Section ${cleanCode} already exists in ${counter.name || counter.id}.`);
+    showToast(`Section ${cleanCode} already exists in ${counter.name || counter.id}.`, 'warning');
     return;
   }
   counter.sections.push({
