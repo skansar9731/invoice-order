@@ -256,6 +256,24 @@ table thead th {
   background-color: #f8fafc;
 }
 
+/* Dedicated Map List View Container: Always visible & horizontally scrollable on mobile & desktop */
+.map-list-container {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+@media screen and (max-width: 767.98px) {
+  .map-list-container {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+}
+
 /* Print Container default (Screen hidden) */
 .print-report-container {
   display: none !important;
@@ -274,8 +292,19 @@ table thead th {
   html, body {
     background: #ffffff !important;
     color: #0f172a !important;
-    font-size: 9pt !important;
-    line-height: 1.35 !important;
+    font-size: 8.5pt !important;
+    line-height: 1.3 !important;
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    float: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   header,
@@ -301,6 +330,10 @@ table thead th {
     visibility: visible !important;
     position: static !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
@@ -308,6 +341,10 @@ table thead th {
 
   .print-report {
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
     margin: 0 auto !important;
   }
 
@@ -315,11 +352,11 @@ table thead th {
   .print-header {
     border-bottom: 2px solid #0f172a;
     padding-bottom: 8px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .print-brand-title {
-    font-size: 16pt;
+    font-size: 15pt;
     font-weight: 900;
     letter-spacing: 0.05em;
     color: #0f172a;
@@ -327,7 +364,7 @@ table thead th {
   }
 
   .print-report-title {
-    font-size: 12pt;
+    font-size: 11pt;
     font-weight: 800;
     letter-spacing: 0.02em;
     color: #334155;
@@ -335,15 +372,152 @@ table thead th {
   }
 
   .print-meta-line {
-    font-size: 8.5pt;
+    font-size: 8pt;
     color: #64748b;
-    margin-top: 4px;
+    margin-top: 3px;
     display: flex;
     gap: 8px;
     align-items: center;
   }
 
-  /* Rack & Counter Card Blocks */
+  /* ==========================================================================
+     COMPLETE RACK & COUNTER OVERVIEW GRID (A4 MULTI-PAGE NATURAL FLOW)
+     ========================================================================== */
+  .print-overview-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+  }
+
+  .print-overview-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    break-inside: avoid-page !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 4px !important;
+    padding: 6px 8px !important;
+    background: #ffffff !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    box-sizing: border-box !important;
+    min-height: 105px !important;
+  }
+
+  .print-card-header-row {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 2px !important;
+  }
+
+  .print-card-title {
+    font-size: 9.5pt !important;
+    font-weight: 800 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    color: #0f172a !important;
+  }
+
+  .print-card-range {
+    font-size: 7.5pt !important;
+    font-weight: 700 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #e2e8f0 !important;
+    padding: 0 4px !important;
+    border-radius: 3px !important;
+    color: #475569 !important;
+  }
+
+  .print-card-sec-count {
+    font-size: 7.5pt !important;
+    color: #64748b !important;
+    font-weight: 500 !important;
+    margin-bottom: 3px !important;
+  }
+
+  .print-card-occupancy {
+    margin-top: 3px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2.5px !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 7pt !important;
+    line-height: 1.2 !important;
+  }
+
+  .print-occ-row {
+    display: flex !important;
+    align-items: baseline !important;
+    gap: 4px !important;
+    overflow: hidden !important;
+  }
+
+  .print-occ-badge {
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    font-size: 6.5pt !important;
+    padding: 0.5px 3px !important;
+    border-radius: 2px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .print-occ-badge.filled {
+    background: #dcfce7 !important;
+    color: #166534 !important;
+    border: 1px solid #bbf7d0 !important;
+  }
+
+  .print-occ-badge.empty {
+    background: #f1f5f9 !important;
+    color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
+  }
+
+  .print-occ-text {
+    font-weight: 600 !important;
+    color: #1e293b !important;
+    letter-spacing: 0.02em !important;
+    word-break: break-all !important;
+  }
+
+  .print-card-footer {
+    padding-top: 4px !important;
+    margin-top: 5px !important;
+    border-top: 1px solid #f1f5f9 !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 7.5pt !important;
+  }
+
+  .print-card-items {
+    color: #64748b !important;
+    font-weight: 500 !important;
+  }
+
+  .print-card-qty {
+    font-weight: 700 !important;
+  }
+
+  .print-card-qty.has-qty {
+    color: #15803d !important;
+  }
+
+  .print-card-qty.no-qty {
+    color: #94a3b8 !important;
+  }
+
+  /* Rack & Counter Card Blocks (Single Detail Views) */
   .print-rack-block,
   .print-counter-block {
     page-break-inside: avoid;

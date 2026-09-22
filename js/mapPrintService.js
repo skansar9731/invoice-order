@@ -176,30 +176,63 @@ function getReportTimestamp() {
 }
 
 /**
- * Print All Racks dedicated report
- * Prints ALL 71 active racks in ONE print job.
- * Excludes R12 and R64 (inactive).
- * Ignores current search query and Grid/List mode.
+ * Print Complete Rack Map Overview Report (All 71 Active Racks)
+ * Renders all active Rack Cards in a clean, multi-column A4 grid that paginates naturally.
  *
  * @param {Map} rackIndex - Map of rackId -> RackData
  */
-export function printAllRacksReport(rackIndex) {
-  // 1. Filter and sort all active racks (excluding R12 and R64)
-  const allActiveRacks = Array.from(rackIndex.values())
-    .filter(rack => rack.rackNum !== 12 && rack.rackNum !== 64 && rack.id !== 'R12' && rack.id !== 'R64')
-    .sort((a, b) => a.rackNum - b.rackNum);
+export function printRackOverviewReport(rackIndex) {
+  if (!rackIndex || rackIndex.size === 0) return;
 
   const timestamp = getReportTimestamp();
+  const rackList = Array.from(rackIndex.values()).sort((a, b) => a.rackNum - b.rackNum);
 
-  // Shop totals across active racks
   let totalProducts = 0;
   let totalQuantity = 0;
-  allActiveRacks.forEach(rack => {
-    totalProducts += rack.allProducts.length;
-    rack.allProducts.forEach(p => {
+
+  rackList.forEach(rack => {
+    totalProducts += (rack.allProducts || []).length;
+    (rack.allProducts || []).forEach(p => {
       totalQuantity += getNumericStock(p.stockQty);
     });
   });
+
+  const cardsHtml = rackList.map(rack => {
+    const prodCount = (rack.allProducts || []).length;
+    let qtySum = 0;
+    (rack.allProducts || []).forEach(p => {
+      qtySum += getNumericStock(p.stockQty);
+    });
+    const occupancy = calculateSectionOccupancy(rack.sectionMap);
+
+    return `
+      <div class="print-overview-card">
+        <div>
+          <div class="print-card-header-row">
+            <span class="print-card-title">${escapeHtml(rack.name || rack.id)}</span>
+            <span class="print-card-range">${escapeHtml(rack.sectionStart)}-${escapeHtml(rack.sectionEnd)}</span>
+          </div>
+          <div class="print-card-sec-count">${occupancy.totalSections} sections</div>
+
+          <div class="print-card-occupancy">
+            <div class="print-occ-row print-occ-filled">
+              <span class="print-occ-badge filled">Filled: ${occupancy.filledCount}</span>
+              <span class="print-occ-text">${escapeHtml(occupancy.filledText || '—')}</span>
+            </div>
+            <div class="print-occ-row print-occ-empty">
+              <span class="print-occ-badge empty">Empty: ${occupancy.emptyCount}</span>
+              <span class="print-occ-text">${escapeHtml(occupancy.emptyText || '—')}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="print-card-footer">
+          <span class="print-card-items"><b>${prodCount}</b> items</span>
+          <span class="print-card-qty ${qtySum > 0 ? 'has-qty' : 'no-qty'}">Qty: <b>${qtySum}</b></span>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   const reportHtml = `
     <div class="print-report">
@@ -210,7 +243,7 @@ export function printAllRacksReport(rackIndex) {
         <div class="print-meta-line">
           <span>Generated: <b>${escapeHtml(timestamp)}</b></span>
           <span>&bull;</span>
-          <span>Active Racks: <b>${allActiveRacks.length}</b></span>
+          <span>Active Racks: <b>${rackList.length}</b></span>
           <span>&bull;</span>
           <span>Total Products: <b>${totalProducts.toLocaleString()}</b></span>
           <span>&bull;</span>
@@ -218,147 +251,9 @@ export function printAllRacksReport(rackIndex) {
         </div>
       </div>
 
-      <!-- Racks List -->
-      <div class="print-content space-y-6">
-        ${allActiveRacks.map(rack => {
-          const occupancy = calculateSectionOccupancy(rack.sectionMap);
-          const rackProds = rack.allProducts || [];
-          let rackQty = 0;
-          rackProds.forEach(p => {
-            rackQty += getNumericStock(p.stockQty);
-          });
-
-          // Sections sorted alphabetically
-          const sortedSections = Array.from(rack.sectionMap.values())
-            .filter(s => s.code !== UNASSIGNED_SECTION_CODE && s.code !== 'Unassigned')
-            .sort((a, b) => a.code.localeCompare(b.code));
-
-          const unassignedProds = rack.unassignedSectionProducts || [];
-
-          return `
-            <div class="print-rack-block">
-              <!-- Rack Summary Header -->
-              <div class="print-rack-header">
-                <div class="print-rack-title-row">
-                  <span class="print-rack-name">${escapeHtml(rack.name || rack.id).toUpperCase()}</span>
-                  <span class="print-rack-range">Sections: ${escapeHtml(rack.sectionStart)}-${escapeHtml(rack.sectionEnd)}</span>
-                </div>
-                <div class="print-rack-stats-grid">
-                  <div><b>Total Sections:</b> ${occupancy.totalSections}</div>
-                  <div><b>Filled (${occupancy.filledCount}):</b> ${escapeHtml(occupancy.filledText || 'None')}</div>
-                  <div><b>Empty (${occupancy.emptyCount}):</b> ${escapeHtml(occupancy.emptyText || 'None')}</div>
-                  <div><b>Products:</b> ${rackProds.length} &bull; <b>Total Qty:</b> ${rackQty}</div>
-                </div>
-              </div>
-
-              <!-- Rack Sections -->
-              <div class="print-sections-container">
-                ${sortedSections.map(sec => {
-                  const prods = sec.products || [];
-                  const subOcc = calculateSubSectionOccupancy(sec);
-
-                  if (prods.length === 0) {
-                    return `
-                      <div class="print-section-block print-section-empty">
-                        <div class="print-section-title">SECTION ${escapeHtml(sec.code)}</div>
-                        <div class="print-empty-label">EMPTY</div>
-                      </div>
-                    `;
-                  }
-
-                  return `
-                    <div class="print-section-block">
-                      <div class="print-section-title">
-                        <span>SECTION ${escapeHtml(sec.code)}</span>
-                        <span class="print-section-badge">
-                          ${prods.length} item${prods.length === 1 ? '' : 's'}
-                          ${subOcc ? ` &bull; Subs Filled: ${subOcc.filledCount} (${escapeHtml(subOcc.filledText)}), Empty: ${subOcc.emptyCount} (${escapeHtml(subOcc.emptyText)})` : ''}
-                        </span>
-                      </div>
-
-                      <table class="print-table">
-                        <thead>
-                          <tr>
-                            <th style="width: 35px;">#</th>
-                            <th style="width: 240px;">Item Details</th>
-                            <th style="width: 130px;">Part Number</th>
-                            <th style="width: 55px; text-align: center;">Qty</th>
-                            <th style="width: 45px; text-align: center;">Unit</th>
-                            <th style="width: 65px; text-align: right;">MRP</th>
-                            <th style="width: 90px;">Group</th>
-                            <th style="width: 90px; text-align: center;">Rack Location</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${prods.map((p, idx) => {
-                            const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
-                            const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
-                            return `
-                              <tr>
-                                <td style="text-align: center;">${idx + 1}</td>
-                                <td>
-                                  <b>${escapeHtml(p.productName || p.itemDetails || '-')}</b>
-                                  ${p.subSection ? ` <span class="print-sub-tag">[Sub ${escapeHtml(p.subSection)}]</span>` : ''}
-                                </td>
-                                <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
-                                <td style="text-align: center; font-weight: bold;">${q}</td>
-                                <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
-                                <td style="text-align: right;">₹${rateVal}</td>
-                                <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
-                                <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
-                              </tr>
-                            `;
-                          }).join('')}
-                        </tbody>
-                      </table>
-                    </div>
-                  `;
-                }).join('')}
-
-                ${unassignedProds.length > 0 ? `
-                  <div class="print-section-block">
-                    <div class="print-section-title">
-                      <span>UNASSIGNED SECTION</span>
-                      <span class="print-section-badge">${unassignedProds.length} item(s)</span>
-                    </div>
-                    <table class="print-table">
-                      <thead>
-                        <tr>
-                          <th style="width: 35px;">#</th>
-                          <th style="width: 240px;">Item Details</th>
-                          <th style="width: 130px;">Part Number</th>
-                          <th style="width: 55px; text-align: center;">Qty</th>
-                          <th style="width: 45px; text-align: center;">Unit</th>
-                          <th style="width: 65px; text-align: right;">MRP</th>
-                          <th style="width: 90px;">Group</th>
-                          <th style="width: 90px; text-align: center;">Rack Location</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${unassignedProds.map((p, idx) => {
-                          const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
-                          const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
-                          return `
-                            <tr>
-                              <td style="text-align: center;">${idx + 1}</td>
-                              <td><b>${escapeHtml(p.productName || p.itemDetails || '-')}</b></td>
-                              <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
-                              <td style="text-align: center; font-weight: bold;">${q}</td>
-                              <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
-                              <td style="text-align: right;">₹${rateVal}</td>
-                              <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
-                              <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
-                            </tr>
-                          `;
-                        }).join('')}
-                      </tbody>
-                    </table>
-                  </div>
-                ` : ''}
-              </div>
-            </div>
-          `;
-        }).join('')}
+      <!-- Complete Rack Overview Card Grid -->
+      <div class="print-overview-grid">
+        ${cardsHtml}
       </div>
     </div>
   `;
@@ -367,26 +262,63 @@ export function printAllRacksReport(rackIndex) {
 }
 
 /**
- * Print All Counters dedicated report
- * Prints ALL 8 counters in ONE print job.
- * Ignores current search query and Grid/List mode.
+ * Print Complete Counter Map Overview Report (All 8 Active Counters)
+ * Renders all 8 Counter Cards in a clean, multi-column A4 grid that paginates naturally.
  *
  * @param {Map} counterIndex - Map of counterId -> CounterData
  */
-export function printAllCountersReport(counterIndex) {
-  const allCounters = Array.from(counterIndex.values())
-    .sort((a, b) => a.counterNum - b.counterNum);
+export function printCounterOverviewReport(counterIndex) {
+  if (!counterIndex || counterIndex.size === 0) return;
 
   const timestamp = getReportTimestamp();
+  const counterList = Array.from(counterIndex.values()).sort((a, b) => a.counterNum - b.counterNum);
 
   let totalProducts = 0;
   let totalQuantity = 0;
-  allCounters.forEach(counter => {
-    totalProducts += counter.allProducts.length;
-    counter.allProducts.forEach(p => {
+
+  counterList.forEach(counter => {
+    totalProducts += (counter.allProducts || []).length;
+    (counter.allProducts || []).forEach(p => {
       totalQuantity += getNumericStock(p.stockQty);
     });
   });
+
+  const cardsHtml = counterList.map(counter => {
+    const prodCount = (counter.allProducts || []).length;
+    let qtySum = 0;
+    (counter.allProducts || []).forEach(p => {
+      qtySum += getNumericStock(p.stockQty);
+    });
+    const occupancy = calculateSectionOccupancy(counter.sectionMap);
+
+    return `
+      <div class="print-overview-card">
+        <div>
+          <div class="print-card-header-row">
+            <span class="print-card-title">${escapeHtml(counter.name || counter.id)}</span>
+            <span class="print-card-range">${escapeHtml(counter.sectionStart)}-${escapeHtml(counter.sectionEnd)}</span>
+          </div>
+          <div class="print-card-sec-count">${occupancy.totalSections} sections</div>
+
+          <div class="print-card-occupancy">
+            <div class="print-occ-row print-occ-filled">
+              <span class="print-occ-badge filled">Filled: ${occupancy.filledCount}</span>
+              <span class="print-occ-text">${escapeHtml(occupancy.filledText || '—')}</span>
+            </div>
+            <div class="print-occ-row print-occ-empty">
+              <span class="print-occ-badge empty">Empty: ${occupancy.emptyCount}</span>
+              <span class="print-occ-text">${escapeHtml(occupancy.emptyText || '—')}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="print-card-footer">
+          <span class="print-card-items"><b>${prodCount}</b> items</span>
+          <span class="print-card-qty ${qtySum > 0 ? 'has-qty' : 'no-qty'}">Qty: <b>${qtySum}</b></span>
+        </div>
+      </div>
+    `;
+  }).join('');
 
   const reportHtml = `
     <div class="print-report">
@@ -397,7 +329,7 @@ export function printAllCountersReport(counterIndex) {
         <div class="print-meta-line">
           <span>Generated: <b>${escapeHtml(timestamp)}</b></span>
           <span>&bull;</span>
-          <span>Active Counters: <b>${allCounters.length}</b></span>
+          <span>Active Counters: <b>${counterList.length}</b></span>
           <span>&bull;</span>
           <span>Total Products: <b>${totalProducts.toLocaleString()}</b></span>
           <span>&bull;</span>
@@ -405,103 +337,310 @@ export function printAllCountersReport(counterIndex) {
         </div>
       </div>
 
-      <!-- Counters List -->
-      <div class="print-content space-y-6">
-        ${allCounters.map(counter => {
-          const occupancy = calculateSectionOccupancy(counter.sectionMap);
-          const counterProds = counter.allProducts || [];
-          let counterQty = 0;
-          counterProds.forEach(p => {
-            counterQty += getNumericStock(p.stockQty);
-          });
+      <!-- Complete Counter Overview Card Grid -->
+      <div class="print-overview-grid">
+        ${cardsHtml}
+      </div>
+    </div>
+  `;
 
-          const sortedSections = Array.from(counter.sectionMap.values())
-            .filter(s => s.code !== UNASSIGNED_SECTION_CODE && s.code !== 'Unassigned')
-            .sort((a, b) => a.code.localeCompare(b.code));
+  executePrintJob(reportHtml);
+}
 
-          return `
-            <div class="print-counter-block">
-              <!-- Counter Summary Header -->
-              <div class="print-counter-header">
-                <div class="print-rack-title-row">
-                  <span class="print-rack-name">${escapeHtml(counter.name || counter.id).toUpperCase()}</span>
-                  <span class="print-rack-range">Sections: ${escapeHtml(counter.sectionStart)}-${escapeHtml(counter.sectionEnd)}</span>
-                </div>
-                <div class="print-rack-stats-grid">
-                  <div><b>Total Sections:</b> ${occupancy.totalSections}</div>
-                  <div><b>Filled (${occupancy.filledCount}):</b> ${escapeHtml(occupancy.filledText || 'None')}</div>
-                  <div><b>Empty (${occupancy.emptyCount}):</b> ${escapeHtml(occupancy.emptyText || 'None')}</div>
-                  <div><b>Products:</b> ${counterProds.length} &bull; <b>Total Qty:</b> ${counterQty}</div>
-                </div>
-              </div>
+/**
+ * Print Single Rack dedicated report
+ * Prints ONLY the currently selected/open rack.
+ *
+ * @param {Object} rack - RackData object for the selected rack
+ */
+export function printSingleRackReport(rack) {
+  if (!rack) return;
 
-              <!-- Counter Sections -->
-              <div class="print-sections-container">
-                ${sortedSections.map(sec => {
-                  const prods = sec.products || [];
-                  const subOcc = calculateSubSectionOccupancy(sec);
+  const timestamp = getReportTimestamp();
+  const occupancy = calculateSectionOccupancy(rack.sectionMap);
+  const rackProds = rack.allProducts || [];
+  let rackQty = 0;
+  rackProds.forEach(p => {
+    rackQty += getNumericStock(p.stockQty);
+  });
 
-                  if (prods.length === 0) {
-                    return `
-                      <div class="print-section-block print-section-empty">
-                        <div class="print-section-title">SECTION ${escapeHtml(sec.code)}</div>
-                        <div class="print-empty-label">EMPTY</div>
-                      </div>
-                    `;
-                  }
+  const sortedSections = Array.from(rack.sectionMap.values())
+    .filter(s => s.code !== UNASSIGNED_SECTION_CODE && s.code !== 'Unassigned')
+    .sort((a, b) => a.code.localeCompare(b.code));
 
-                  return `
-                    <div class="print-section-block">
-                      <div class="print-section-title">
-                        <span>SECTION ${escapeHtml(sec.code)}</span>
-                        <span class="print-section-badge">
-                          ${prods.length} item${prods.length === 1 ? '' : 's'}
-                          ${subOcc ? ` &bull; Subs Filled: ${subOcc.filledCount} (${escapeHtml(subOcc.filledText)}), Empty: ${subOcc.emptyCount} (${escapeHtml(subOcc.emptyText)})` : ''}
-                        </span>
-                      </div>
+  const unassignedProds = rack.unassignedSectionProducts || [];
 
-                      <table class="print-table">
-                        <thead>
-                          <tr>
-                            <th style="width: 35px;">#</th>
-                            <th style="width: 240px;">Item Details</th>
-                            <th style="width: 130px;">Part Number</th>
-                            <th style="width: 55px; text-align: center;">Qty</th>
-                            <th style="width: 45px; text-align: center;">Unit</th>
-                            <th style="width: 65px; text-align: right;">MRP</th>
-                            <th style="width: 90px;">Group</th>
-                            <th style="width: 90px; text-align: center;">Counter Location</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${prods.map((p, idx) => {
-                            const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
-                            const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
-                            return `
-                              <tr>
-                                <td style="text-align: center;">${idx + 1}</td>
-                                <td>
-                                  <b>${escapeHtml(p.productName || p.itemDetails || '-')}</b>
-                                  ${p.subSection ? ` <span class="print-sub-tag">[Sub ${escapeHtml(p.subSection)}]</span>` : ''}
-                                </td>
-                                <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
-                                <td style="text-align: center; font-weight: bold;">${q}</td>
-                                <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
-                                <td style="text-align: right;">₹${rateVal}</td>
-                                <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
-                                <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
-                              </tr>
-                            `;
-                          }).join('')}
-                        </tbody>
-                      </table>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
+  const reportHtml = `
+    <div class="print-report">
+      <!-- Report Header -->
+      <div class="print-header">
+        <div class="print-brand-title">MH AUTO</div>
+        <div class="print-report-title">SHOP RACK MAP — ${escapeHtml(rack.name || rack.id).toUpperCase()}</div>
+        <div class="print-meta-line">
+          <span>Generated: <b>${escapeHtml(timestamp)}</b></span>
+          <span>&bull;</span>
+          <span>Rack: <b>${escapeHtml(rack.name || rack.id)}</b></span>
+          <span>&bull;</span>
+          <span>Sections: <b>${escapeHtml(rack.sectionStart)}-${escapeHtml(rack.sectionEnd)}</b></span>
+          <span>&bull;</span>
+          <span>Total Products: <b>${rackProds.length}</b></span>
+          <span>&bull;</span>
+          <span>Total Qty: <b>${rackQty}</b></span>
+        </div>
+      </div>
+
+      <!-- Single Rack Block -->
+      <div class="print-content">
+        <div class="print-rack-block">
+          <!-- Rack Summary Header -->
+          <div class="print-rack-header">
+            <div class="print-rack-title-row">
+              <span class="print-rack-name">${escapeHtml(rack.name || rack.id).toUpperCase()}</span>
+              <span class="print-rack-range">Sections: ${escapeHtml(rack.sectionStart)}-${escapeHtml(rack.sectionEnd)}</span>
             </div>
-          `;
-        }).join('')}
+            <div class="print-rack-stats-grid">
+              <div><b>Total Sections:</b> ${occupancy.totalSections}</div>
+              <div><b>Filled (${occupancy.filledCount}):</b> ${escapeHtml(occupancy.filledText || 'None')}</div>
+              <div><b>Empty (${occupancy.emptyCount}):</b> ${escapeHtml(occupancy.emptyText || 'None')}</div>
+              <div><b>Products:</b> ${rackProds.length} &bull; <b>Total Qty:</b> ${rackQty}</div>
+            </div>
+          </div>
+
+          <!-- Rack Sections -->
+          <div class="print-sections-container">
+            ${sortedSections.map(sec => {
+              const prods = sec.products || [];
+              const subOcc = calculateSubSectionOccupancy(sec);
+
+              if (prods.length === 0) {
+                return `
+                  <div class="print-section-block print-section-empty">
+                    <div class="print-section-title">SECTION ${escapeHtml(sec.code)}</div>
+                    <div class="print-empty-label">EMPTY</div>
+                  </div>
+                `;
+              }
+
+              return `
+                <div class="print-section-block">
+                  <div class="print-section-title">
+                    <span>SECTION ${escapeHtml(sec.code)}</span>
+                    <span class="print-section-badge">
+                      ${prods.length} item${prods.length === 1 ? '' : 's'}
+                      ${subOcc ? ` &bull; Subs Filled: ${subOcc.filledCount} (${escapeHtml(subOcc.filledText)}), Empty: ${subOcc.emptyCount} (${escapeHtml(subOcc.emptyText)})` : ''}
+                    </span>
+                  </div>
+
+                  <table class="print-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 35px;">#</th>
+                        <th style="width: 240px;">Item Details</th>
+                        <th style="width: 130px;">Part Number</th>
+                        <th style="width: 55px; text-align: center;">Qty</th>
+                        <th style="width: 45px; text-align: center;">Unit</th>
+                        <th style="width: 65px; text-align: right;">MRP</th>
+                        <th style="width: 90px;">Group</th>
+                        <th style="width: 90px; text-align: center;">Rack Location</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${prods.map((p, idx) => {
+                        const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
+                        const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
+                        return `
+                          <tr>
+                            <td style="text-align: center;">${idx + 1}</td>
+                            <td>
+                              <b>${escapeHtml(p.productName || p.itemDetails || '-')}</b>
+                              ${p.subSection ? ` <span class="print-sub-tag">[Sub ${escapeHtml(p.subSection)}]</span>` : ''}
+                            </td>
+                            <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
+                            <td style="text-align: center; font-weight: bold;">${q}</td>
+                            <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
+                            <td style="text-align: right;">₹${rateVal}</td>
+                            <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
+                            <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('')}
+
+            ${unassignedProds.length > 0 ? `
+              <div class="print-section-block">
+                <div class="print-section-title">
+                  <span>UNASSIGNED SECTION</span>
+                  <span class="print-section-badge">${unassignedProds.length} item(s)</span>
+                </div>
+                <table class="print-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 35px;">#</th>
+                      <th style="width: 240px;">Item Details</th>
+                      <th style="width: 130px;">Part Number</th>
+                      <th style="width: 55px; text-align: center;">Qty</th>
+                      <th style="width: 45px; text-align: center;">Unit</th>
+                      <th style="width: 65px; text-align: right;">MRP</th>
+                      <th style="width: 90px;">Group</th>
+                      <th style="width: 90px; text-align: center;">Rack Location</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${unassignedProds.map((p, idx) => {
+                      const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
+                      const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
+                      return `
+                        <tr>
+                          <td style="text-align: center;">${idx + 1}</td>
+                          <td><b>${escapeHtml(p.productName || p.itemDetails || '-')}</b></td>
+                          <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
+                          <td style="text-align: center; font-weight: bold;">${q}</td>
+                          <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
+                          <td style="text-align: right;">₹${rateVal}</td>
+                          <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
+                          <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  executePrintJob(reportHtml);
+}
+
+/**
+ * Print Single Counter dedicated report
+ * Prints ONLY the currently selected/open counter.
+ *
+ * @param {Object} counter - CounterData object for the selected counter
+ */
+export function printSingleCounterReport(counter) {
+  if (!counter) return;
+
+  const timestamp = getReportTimestamp();
+  const occupancy = calculateSectionOccupancy(counter.sectionMap);
+  const counterProds = counter.allProducts || [];
+  let counterQty = 0;
+  counterProds.forEach(p => {
+    counterQty += getNumericStock(p.stockQty);
+  });
+
+  const sortedSections = Array.from(counter.sectionMap.values())
+    .filter(s => s.code !== UNASSIGNED_SECTION_CODE && s.code !== 'Unassigned')
+    .sort((a, b) => a.code.localeCompare(b.code));
+
+  const reportHtml = `
+    <div class="print-report">
+      <!-- Report Header -->
+      <div class="print-header">
+        <div class="print-brand-title">MH AUTO</div>
+        <div class="print-report-title">SHOP COUNTER MAP — ${escapeHtml(counter.name || counter.id).toUpperCase()}</div>
+        <div class="print-meta-line">
+          <span>Generated: <b>${escapeHtml(timestamp)}</b></span>
+          <span>&bull;</span>
+          <span>Counter: <b>${escapeHtml(counter.name || counter.id)}</b></span>
+          <span>&bull;</span>
+          <span>Sections: <b>${escapeHtml(counter.sectionStart)}-${escapeHtml(counter.sectionEnd)}</b></span>
+          <span>&bull;</span>
+          <span>Total Products: <b>${counterProds.length}</b></span>
+          <span>&bull;</span>
+          <span>Total Qty: <b>${counterQty}</b></span>
+        </div>
+      </div>
+
+      <!-- Single Counter Block -->
+      <div class="print-content">
+        <div class="print-counter-block">
+          <!-- Counter Summary Header -->
+          <div class="print-counter-header">
+            <div class="print-rack-title-row">
+              <span class="print-rack-name">${escapeHtml(counter.name || counter.id).toUpperCase()}</span>
+              <span class="print-rack-range">Sections: ${escapeHtml(counter.sectionStart)}-${escapeHtml(counter.sectionEnd)}</span>
+            </div>
+            <div class="print-rack-stats-grid">
+              <div><b>Total Sections:</b> ${occupancy.totalSections}</div>
+              <div><b>Filled (${occupancy.filledCount}):</b> ${escapeHtml(occupancy.filledText || 'None')}</div>
+              <div><b>Empty (${occupancy.emptyCount}):</b> ${escapeHtml(occupancy.emptyText || 'None')}</div>
+              <div><b>Products:</b> ${counterProds.length} &bull; <b>Total Qty:</b> ${counterQty}</div>
+            </div>
+          </div>
+
+          <!-- Counter Sections -->
+          <div class="print-sections-container">
+            ${sortedSections.map(sec => {
+              const prods = sec.products || [];
+              const subOcc = calculateSubSectionOccupancy(sec);
+
+              if (prods.length === 0) {
+                return `
+                  <div class="print-section-block print-section-empty">
+                    <div class="print-section-title">SECTION ${escapeHtml(sec.code)}</div>
+                    <div class="print-empty-label">EMPTY</div>
+                  </div>
+                `;
+              }
+
+              return `
+                <div class="print-section-block">
+                  <div class="print-section-title">
+                    <span>SECTION ${escapeHtml(sec.code)}</span>
+                    <span class="print-section-badge">
+                      ${prods.length} item${prods.length === 1 ? '' : 's'}
+                      ${subOcc ? ` &bull; Subs Filled: ${subOcc.filledCount} (${escapeHtml(subOcc.filledText)}), Empty: ${subOcc.emptyCount} (${escapeHtml(subOcc.emptyText)})` : ''}
+                    </span>
+                  </div>
+
+                  <table class="print-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 35px;">#</th>
+                        <th style="width: 240px;">Item Details</th>
+                        <th style="width: 130px;">Part Number</th>
+                        <th style="width: 55px; text-align: center;">Qty</th>
+                        <th style="width: 45px; text-align: center;">Unit</th>
+                        <th style="width: 65px; text-align: right;">MRP</th>
+                        <th style="width: 90px;">Group</th>
+                        <th style="width: 90px; text-align: center;">Counter Location</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${prods.map((p, idx) => {
+                        const q = getNumericStock(p.allocatedQty !== undefined ? p.allocatedQty : p.stockQty);
+                        const rateVal = p.rate ? Number(p.rate).toFixed(2) : (p.mrp ? Number(p.mrp).toFixed(2) : '0.00');
+                        return `
+                          <tr>
+                            <td style="text-align: center;">${idx + 1}</td>
+                            <td>
+                              <b>${escapeHtml(p.productName || p.itemDetails || '-')}</b>
+                              ${p.subSection ? ` <span class="print-sub-tag">[Sub ${escapeHtml(p.subSection)}]</span>` : ''}
+                            </td>
+                            <td class="print-mono">${escapeHtml(p.partNumber || '-')}</td>
+                            <td style="text-align: center; font-weight: bold;">${q}</td>
+                            <td style="text-align: center;">${escapeHtml(p.unit || 'Pcs.')}</td>
+                            <td style="text-align: right;">₹${rateVal}</td>
+                            <td>${escapeHtml(p.group || p.parentGroup || '-')}</td>
+                            <td style="text-align: center;" class="print-mono">${escapeHtml(p.rack || '-')}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -522,6 +661,7 @@ function executePrintJob(html) {
   }
 
   printContainer.innerHTML = html;
+  printContainer.classList.remove('hidden');
 
   // Let DOM update before triggering print
   setTimeout(() => {

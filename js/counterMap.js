@@ -23,7 +23,7 @@ import { parseProductCounter, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossS
 import { showToast, renderOrderTable } from './ui.js';
 import { addOrderItem } from './orderManager.js';
 import { searchCounterMap } from './mapSearch.js';
-import { calculateSectionOccupancy, calculateSubSectionOccupancy, printAllCountersReport } from './mapPrintService.js';
+import { calculateSectionOccupancy, calculateSubSectionOccupancy, printSingleCounterReport, printCounterOverviewReport } from './mapPrintService.js';
 
 let activeView = 'counters'; // 'counters' | 'sections' | 'products'
 let selectedCounterId = null;
@@ -287,21 +287,21 @@ function renderAllCountersView(container) {
           </p>
         </div>
 
-        <!-- Controls: Print All & Grid/List View Toggle -->
-        <div class="flex flex-wrap items-center gap-2.5 self-start md:self-center">
-          <button type="button" id="btn-print-all-counters"
+        <!-- Controls: Print Overview & Grid/List View Toggle (Mobile & Desktop Visible) -->
+        <div class="flex flex-wrap items-center gap-2.5 self-start md:self-center shrink-0">
+          <button type="button" id="btn-print-counter-overview"
             class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95">
             <span>🖨</span>
-            <span>Print All Counters</span>
+            <span>Print Counter Overview</span>
           </button>
 
           <div class="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
             <button type="button" id="counter-toggle-grid"
-              class="px-3 py-1 rounded-md text-xs font-bold transition ${counterDisplayMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              class="px-3.5 py-1.5 rounded-md text-xs font-bold transition ${counterDisplayMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
               ▦ Grid
             </button>
             <button type="button" id="counter-toggle-list"
-              class="px-3 py-1 rounded-md text-xs font-bold transition ${counterDisplayMode === 'list' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              class="px-3.5 py-1.5 rounded-md text-xs font-bold transition ${counterDisplayMode === 'list' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
               ☰ List
             </button>
           </div>
@@ -360,11 +360,11 @@ function renderAllCountersView(container) {
   // Initial render
   refreshDisplay();
 
-  // Print All Counters Handler (always prints all 8 counters, independent of search or view mode)
-  const printBtn = container.querySelector('#btn-print-all-counters');
-  if (printBtn) {
-    printBtn.addEventListener('click', () => {
-      printAllCountersReport(counterIndex);
+  // Print Counter Overview (always prints all 8 counters in full card grid, regardless of search query or list/grid mode)
+  const printOverviewBtn = container.querySelector('#btn-print-counter-overview');
+  if (printOverviewBtn) {
+    printOverviewBtn.addEventListener('click', () => {
+      printCounterOverviewReport(counterIndex);
     });
   }
 
@@ -708,7 +708,7 @@ function renderCounterListView(container, counters) {
   }
 
   container.innerHTML = `
-    <div class="responsive-table-view bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+    <div class="map-list-container bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
       <div class="table-scroll-container">
         <table class="w-full text-left text-xs border-collapse map-view-table">
           <thead class="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs z-10">
@@ -814,6 +814,12 @@ function renderCounterSectionsView(container) {
             Select a section to view products stored at this counter station.
           </p>
         </div>
+
+        <button type="button" id="btn-print-current-counter"
+          class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95 self-start sm:self-center">
+          <span>🖨</span>
+          <span>Print ${escapeHtml(counter.name || counter.id)}</span>
+        </button>
       </div>
 
       <!-- Dynamic Totals Banner -->
@@ -876,6 +882,11 @@ function renderCounterSectionsView(container) {
       </div>
     </div>
   `;
+
+  // Bind print button
+  container.querySelector('#btn-print-current-counter')?.addEventListener('click', () => {
+    printSingleCounterReport(counter);
+  });
 
   // Bind back button
   container.querySelector('#btn-back-to-counters')?.addEventListener('click', () => {
@@ -960,6 +971,12 @@ function renderSectionProductsView(container) {
             Dynamic stock reference derived directly from Product Master.
           </div>
         </div>
+
+        <button type="button" id="btn-print-current-counter-sec"
+          class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95 self-start sm:self-center">
+          <span>🖨</span>
+          <span>Print ${escapeHtml(counter.name || counter.id)}</span>
+        </button>
       </div>
 
       <!-- Dynamic Totals Banner -->
@@ -1124,6 +1141,11 @@ function renderSectionProductsView(container) {
       `}
     </div>
   `;
+
+  // Bind print button
+  container.querySelector('#btn-print-current-counter-sec')?.addEventListener('click', () => {
+    printSingleCounterReport(counter);
+  });
 
   // Breadcrumb handlers
   container.querySelector('#btn-back-to-all-counters')?.addEventListener('click', () => {

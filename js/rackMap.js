@@ -16,7 +16,7 @@ import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSect
 import { showToast, renderOrderTable } from './ui.js';
 import { addOrderItem } from './orderManager.js';
 import { searchRackMap } from './mapSearch.js';
-import { calculateSectionOccupancy, calculateSubSectionOccupancy, printAllRacksReport } from './mapPrintService.js';
+import { calculateSectionOccupancy, calculateSubSectionOccupancy, printSingleRackReport, printRackOverviewReport } from './mapPrintService.js';
 
 let activeView = 'racks'; // 'racks' | 'sections' | 'products'
 let selectedRackId = null;
@@ -277,21 +277,21 @@ function renderAllRacksView(container) {
           </p>
         </div>
 
-        <!-- Controls: Print All & Grid/List View Toggle -->
-        <div class="flex flex-wrap items-center gap-2.5 self-start md:self-center">
-          <button type="button" id="btn-print-all-racks"
+        <!-- Controls: Print Overview & Grid/List View Toggle (Mobile & Desktop Visible) -->
+        <div class="flex flex-wrap items-center gap-2.5 self-start md:self-center shrink-0">
+          <button type="button" id="btn-print-rack-overview"
             class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95">
             <span>🖨</span>
-            <span>Print All Racks</span>
+            <span>Print Rack Overview</span>
           </button>
 
           <div class="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
             <button type="button" id="rack-toggle-grid"
-              class="px-3 py-1 rounded-md text-xs font-bold transition ${rackDisplayMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              class="px-3.5 py-1.5 rounded-md text-xs font-bold transition ${rackDisplayMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
               ▦ Grid
             </button>
             <button type="button" id="rack-toggle-list"
-              class="px-3 py-1 rounded-md text-xs font-bold transition ${rackDisplayMode === 'list' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              class="px-3.5 py-1.5 rounded-md text-xs font-bold transition ${rackDisplayMode === 'list' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
               ☰ List
             </button>
           </div>
@@ -350,11 +350,11 @@ function renderAllRacksView(container) {
   // Initial render
   refreshDisplay();
 
-  // Print All Racks Handler (always prints all 71 active racks, independent of search or view mode)
-  const printBtn = container.querySelector('#btn-print-all-racks');
-  if (printBtn) {
-    printBtn.addEventListener('click', () => {
-      printAllRacksReport(rackIndex);
+  // Print Rack Overview (always prints all 71 active racks in full card grid, regardless of search query or list/grid mode)
+  const printOverviewBtn = container.querySelector('#btn-print-rack-overview');
+  if (printOverviewBtn) {
+    printOverviewBtn.addEventListener('click', () => {
+      printRackOverviewReport(rackIndex);
     });
   }
 
@@ -366,16 +366,16 @@ function renderAllRacksView(container) {
     gridToggleBtn.addEventListener('click', () => {
       if (rackDisplayMode === 'grid') return;
       rackDisplayMode = 'grid';
-      gridToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
-      listToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
+      gridToggleBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
+      listToggleBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
       refreshDisplay();
     });
 
     listToggleBtn.addEventListener('click', () => {
       if (rackDisplayMode === 'list') return;
       rackDisplayMode = 'list';
-      listToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
-      gridToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
+      listToggleBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
+      gridToggleBtn.className = 'px-3.5 py-1.5 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
       refreshDisplay();
     });
   }
@@ -699,7 +699,7 @@ function renderRackListView(container, racks) {
   }
 
   container.innerHTML = `
-    <div class="responsive-table-view bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+    <div class="map-list-container bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
       <div class="table-scroll-container">
         <table class="w-full text-left text-xs border-collapse map-view-table">
           <thead class="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs z-10">
@@ -806,6 +806,12 @@ function renderRackSectionsView(container) {
             Select a section to inspect products and sub-sections stored at this location.
           </p>
         </div>
+
+        <button type="button" id="btn-print-current-rack"
+          class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95 self-start sm:self-center">
+          <span>🖨</span>
+          <span>Print ${escapeHtml(rack.name || rack.id)}</span>
+        </button>
       </div>
 
       <!-- Dynamic Totals Banner -->
@@ -890,6 +896,11 @@ function renderRackSectionsView(container) {
       </div>
     </div>
   `;
+
+  // Bind print button
+  container.querySelector('#btn-print-current-rack')?.addEventListener('click', () => {
+    printSingleRackReport(rack);
+  });
 
   // Bind back button
   container.querySelector('#btn-back-to-racks')?.addEventListener('click', () => {
@@ -977,6 +988,12 @@ function renderSectionProductsView(container) {
             Dynamic stock reference derived directly from Product Master.
           </div>
         </div>
+
+        <button type="button" id="btn-print-current-rack-sec"
+          class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95 self-start sm:self-center">
+          <span>🖨</span>
+          <span>Print ${escapeHtml(rack.name || rack.id)}</span>
+        </button>
       </div>
 
       <!-- Dynamic Totals Banner -->
@@ -1141,6 +1158,11 @@ function renderSectionProductsView(container) {
       `}
     </div>
   `;
+
+  // Bind print button
+  container.querySelector('#btn-print-current-rack-sec')?.addEventListener('click', () => {
+    printSingleRackReport(rack);
+  });
 
   // Breadcrumb handlers
   container.querySelector('#btn-back-to-all-racks')?.addEventListener('click', () => {
