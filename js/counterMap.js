@@ -23,11 +23,13 @@ import { parseProductCounter, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossS
 import { showToast, renderOrderTable } from './ui.js';
 import { addOrderItem } from './orderManager.js';
 import { searchCounterMap } from './mapSearch.js';
+import { calculateSectionOccupancy, calculateSubSectionOccupancy, printAllCountersReport } from './mapPrintService.js';
 
 let activeView = 'counters'; // 'counters' | 'sections' | 'products'
 let selectedCounterId = null;
 let selectedSectionCode = null;
 let selectedSubSectionFilter = null;
+let counterDisplayMode = 'grid'; // 'grid' | 'list' (defaults to grid)
 
 // In-memory runtime data derived dynamically on load
 let currentProductMaster = [];
@@ -248,7 +250,7 @@ function renderCurrentView() {
 
 /**
  * ----------------------------------------------------------------------------
- * VIEW 1: ALL COUNTERS GRID (Dynamic Counter Map Reference)
+ * VIEW 1: ALL COUNTERS GRID & LIST (Dynamic Counter Map Reference)
  * ----------------------------------------------------------------------------
  */
 function renderAllCountersView(container) {
@@ -284,6 +286,26 @@ function renderAllCountersView(container) {
             Physical front-desk counter stations, dispatch trays, and customer pickup bins.
           </p>
         </div>
+
+        <!-- Controls: Print All & Grid/List View Toggle -->
+        <div class="flex flex-wrap items-center gap-2.5 self-start md:self-center">
+          <button type="button" id="btn-print-all-counters"
+            class="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer active:scale-95">
+            <span>🖨</span>
+            <span>Print All Counters</span>
+          </button>
+
+          <div class="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
+            <button type="button" id="counter-toggle-grid"
+              class="px-3 py-1 rounded-md text-xs font-bold transition ${counterDisplayMode === 'grid' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              ▦ Grid
+            </button>
+            <button type="button" id="counter-toggle-list"
+              class="px-3 py-1 rounded-md text-xs font-bold transition ${counterDisplayMode === 'list' ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500 hover:text-slate-900'}">
+              ☰ List
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Quick Metrics Bar -->
@@ -317,22 +339,77 @@ function renderAllCountersView(container) {
 
     <!-- 8 Counters Responsive Scroll Container -->
     <div class="map-scroll-container">
-      <div id="counters-grid-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Injected counter cards -->
+      <div id="counters-content-container">
+        <!-- Injected counter cards or list table -->
       </div>
     </div>
   `;
 
-  const gridContainer = container.querySelector('#counters-grid-container');
-  renderCounterCards(gridContainer, counterList);
+  const contentContainer = container.querySelector('#counters-content-container');
+  let currentSearchQuery = '';
 
+  const refreshDisplay = () => {
+    if (currentSearchQuery) {
+      const searchRes = searchCounterMap(counterIndex, currentProductMaster, currentSearchQuery);
+      renderCounterSearchResults(contentContainer, searchRes);
+    } else {
+      renderCountersContent(contentContainer, counterList);
+    }
+  };
+
+  // Initial render
+  refreshDisplay();
+
+  // Print All Counters Handler (always prints all 8 counters, independent of search or view mode)
+  const printBtn = container.querySelector('#btn-print-all-counters');
+  if (printBtn) {
+    printBtn.addEventListener('click', () => {
+      printAllCountersReport(counterIndex);
+    });
+  }
+
+  // View toggle handlers
+  const gridToggleBtn = container.querySelector('#counter-toggle-grid');
+  const listToggleBtn = container.querySelector('#counter-toggle-list');
+
+  if (gridToggleBtn && listToggleBtn) {
+    gridToggleBtn.addEventListener('click', () => {
+      if (counterDisplayMode === 'grid') return;
+      counterDisplayMode = 'grid';
+      gridToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
+      listToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
+      refreshDisplay();
+    });
+
+    listToggleBtn.addEventListener('click', () => {
+      if (counterDisplayMode === 'list') return;
+      counterDisplayMode = 'list';
+      listToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition bg-white shadow-xs text-slate-900';
+      gridToggleBtn.className = 'px-3 py-1 rounded-md text-xs font-bold transition text-slate-500 hover:text-slate-900';
+      refreshDisplay();
+    });
+  }
+
+  // Search input handler supporting both Location and Product Master searches
   const filterInput = container.querySelector('#counter-list-filter-input');
   if (filterInput) {
     filterInput.addEventListener('input', (e) => {
-      const q = e.target.value;
-      const searchRes = searchCounterMap(counterIndex, currentProductMaster, q);
-      renderCounterSearchResults(gridContainer, searchRes);
+      currentSearchQuery = e.target.value.trim();
+      const searchRes = searchCounterMap(counterIndex, currentProductMaster, currentSearchQuery);
+      renderCounterSearchResults(contentContainer, searchRes);
     });
+  }
+}
+
+function renderCountersContent(container, counters) {
+  if (!container) return;
+
+  if (counterDisplayMode === 'list') {
+    container.className = 'w-full';
+    renderCounterListView(container, counters);
+  } else {
+    container.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4';
+    renderCounterCards(container, counters);
   }
 }
 
@@ -340,8 +417,7 @@ function renderCounterSearchResults(container, searchRes) {
   if (!container) return;
 
   if (!searchRes || !searchRes.isSearching) {
-    container.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4';
-    renderCounterCards(container, searchRes.matchedCounters);
+    renderCountersContent(container, searchRes ? searchRes.matchedCounters : []);
     return;
   }
 
@@ -357,6 +433,23 @@ function renderCounterSearchResults(container, searchRes) {
     return;
   }
 
+  // If search only matched counter numbers/names without product records
+  if (searchRes.totalMatchedProducts === 0) {
+    container.className = 'w-full space-y-4';
+    container.innerHTML = `
+      <div class="bg-sky-50 border border-sky-200 rounded-xl p-3.5 flex items-center justify-between text-xs text-sky-900 font-medium">
+        <div class="flex items-center gap-2">
+          <span class="text-base">🔎</span>
+          <span>Showing <b>${searchRes.matchedCounters.length}</b> matching counter(s) for "<b>${escapeHtml(searchRes.query)}</b>"</span>
+        </div>
+      </div>
+      <div id="matched-counters-display"></div>
+    `;
+    const innerContainer = container.querySelector('#matched-counters-display');
+    renderCountersContent(innerContainer, searchRes.matchedCounters);
+    return;
+  }
+
   container.className = 'w-full space-y-4';
 
   container.innerHTML = `
@@ -365,9 +458,7 @@ function renderCounterSearchResults(container, searchRes) {
       <div class="flex items-center gap-2">
         <span class="text-base">🔎</span>
         <span>
-          ${searchRes.totalMatchedProducts > 0
-            ? `Found <b>${searchRes.totalMatchedProducts}</b> matching product(s) across <b>${searchRes.matchedCounters.length}</b> counter(s) for "<b>${escapeHtml(searchRes.query)}</b>"`
-            : `Showing <b>${searchRes.matchedCounters.length}</b> matching counter(s) for "<b>${escapeHtml(searchRes.query)}</b>"`}
+          Found <b>${searchRes.totalMatchedProducts}</b> matching product(s) across <b>${searchRes.matchedCounters.length}</b> counter(s) for "<b>${escapeHtml(searchRes.query)}</b>"
         </span>
       </div>
     </div>
@@ -546,12 +637,14 @@ function renderCounterCards(container, counters) {
     counter.allProducts.forEach(p => {
       qtySum += getNumericStock(p.stockQty);
     });
-    const sectionCount = counter.sectionMap.size;
+
+    const occupancy = calculateSectionOccupancy(counter.sectionMap);
 
     return `
       <button type="button" data-counter-select="${counter.id}"
-        class="counter-card text-left p-4 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[130px]">
+        class="counter-card text-left p-4 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[145px]">
         <div>
+          <!-- Counter Title & Section Range -->
           <div class="flex items-center justify-between">
             <span class="font-extrabold text-base text-slate-900 group-hover:text-sky-700">
               ${counter.name || counter.id}
@@ -560,12 +653,27 @@ function renderCounterCards(container, counters) {
               ${counter.sectionStart} to ${counter.sectionEnd}
             </span>
           </div>
-          <div class="text-xs text-slate-500 mt-1">
-            ${sectionCount} sections
+
+          <!-- Total Configured Sections -->
+          <div class="text-xs text-slate-500 mt-1 font-medium">
+            ${occupancy.totalSections} sections
+          </div>
+
+          <!-- Dynamic Filled / Empty Status -->
+          <div class="mt-2.5 space-y-1 text-[11px] font-mono leading-tight">
+            <div class="flex items-baseline gap-1.5 text-sky-900">
+              <span class="font-bold text-[10px] uppercase px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 shrink-0">Filled: ${occupancy.filledCount}</span>
+              <span class="truncate font-semibold text-slate-700 tracking-wide">${occupancy.filledText || '—'}</span>
+            </div>
+            <div class="flex items-baseline gap-1.5 text-slate-500">
+              <span class="font-bold text-[10px] uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">Empty: ${occupancy.emptyCount}</span>
+              <span class="truncate font-semibold text-slate-400 tracking-wide">${occupancy.emptyText || '—'}</span>
+            </div>
           </div>
         </div>
 
-        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+        <!-- Items & Available Qty -->
+        <div class="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between text-xs">
           <span class="text-slate-500 font-medium"><b>${prodCount}</b> items</span>
           <span class="font-bold ${qtySum > 0 ? 'text-sky-700' : 'text-slate-400'}">Qty: ${qtySum}</span>
         </div>
@@ -576,6 +684,85 @@ function renderCounterCards(container, counters) {
   container.querySelectorAll('[data-counter-select]').forEach(btn => {
     btn.addEventListener('click', () => {
       selectedCounterId = btn.dataset.counterSelect;
+      activeView = 'sections';
+      renderCurrentView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+}
+
+/**
+ * Render Counter List View Table (compact table format)
+ * Columns: Counter | Sections | Filled | Empty | Items | Qty
+ */
+function renderCounterListView(container, counters) {
+  if (!container) return;
+
+  if (counters.length === 0) {
+    container.innerHTML = `
+      <div class="text-center py-10 bg-white rounded-xl border border-slate-200 text-slate-400 text-xs">
+        No counters match your search.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="responsive-table-view bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+      <div class="table-scroll-container">
+        <table class="w-full text-left text-xs border-collapse map-view-table">
+          <thead class="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs z-10">
+            <tr>
+              <th class="px-3.5 py-2.5 bg-slate-100 font-mono">Counter</th>
+              <th class="px-3 py-2.5 text-center bg-slate-100 font-mono">Sections</th>
+              <th class="px-3.5 py-2.5 bg-slate-100">Filled</th>
+              <th class="px-3.5 py-2.5 bg-slate-100">Empty</th>
+              <th class="px-3.5 py-2.5 text-center bg-slate-100">Items</th>
+              <th class="px-3.5 py-2.5 text-center bg-slate-100">Qty</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 text-slate-800">
+            ${counters.map(counter => {
+              const occupancy = calculateSectionOccupancy(counter.sectionMap);
+              const prodCount = counter.allProducts.length;
+              let qtySum = 0;
+              counter.allProducts.forEach(p => { qtySum += getNumericStock(p.stockQty); });
+
+              return `
+                <tr data-counter-select="${counter.id}" class="hover:bg-sky-50/40 cursor-pointer transition">
+                  <td class="px-3.5 py-2.5 font-bold text-slate-900 text-sm">
+                    ${counter.name || counter.id}
+                  </td>
+                  <td class="px-3 py-2.5 text-center font-mono text-slate-600 font-semibold">
+                    <span class="px-2 py-0.5 rounded bg-slate-100 border border-slate-200">${counter.sectionStart}-${counter.sectionEnd}</span>
+                  </td>
+                  <td class="px-3.5 py-2.5 font-mono">
+                    <span class="font-bold text-sky-800 bg-sky-100 px-1.5 py-0.5 rounded text-[11px] mr-1.5">${occupancy.filledCount}</span>
+                    <span class="text-slate-800 font-semibold tracking-wide">${occupancy.filledText || '—'}</span>
+                  </td>
+                  <td class="px-3.5 py-2.5 font-mono">
+                    <span class="font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded text-[11px] mr-1.5">${occupancy.emptyCount}</span>
+                    <span class="text-slate-400 font-medium tracking-wide">${occupancy.emptyText || '—'}</span>
+                  </td>
+                  <td class="px-3.5 py-2.5 text-center font-semibold text-slate-700">
+                    ${prodCount}
+                  </td>
+                  <td class="px-3.5 py-2.5 text-center font-extrabold ${qtySum > 0 ? 'text-sky-700' : 'text-slate-400'}">
+                    ${qtySum}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Bind click event on table rows
+  container.querySelectorAll('[data-counter-select]').forEach(row => {
+    row.addEventListener('click', () => {
+      selectedCounterId = row.dataset.counterSelect;
       activeView = 'sections';
       renderCurrentView();
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -650,15 +837,16 @@ function renderCounterSectionsView(container) {
     <div class="map-scroll-container">
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         ${sectionsList.map(sec => {
-    const secProds = sec.products || [];
-    const sCount = secProds.length;
-    let sQty = 0;
-    secProds.forEach(p => {
-      sQty += getNumericStock(p.allocatedQty);
-    });
-    const subSecCount = sec.subSectionMap.size;
+          const secProds = sec.products || [];
+          const sCount = secProds.length;
+          let sQty = 0;
+          secProds.forEach(p => {
+            sQty += getNumericStock(p.allocatedQty);
+          });
+          const subSecCount = sec.subSectionMap.size;
+          const sHasStock = secProds.some(p => getNumericStock(p.allocatedQty) > 0);
 
-    return `
+          return `
             <button type="button" data-section-select="${sec.code}"
               class="text-left p-3.5 rounded-xl border border-slate-200 hover:border-sky-500 bg-white hover:bg-sky-50/20 shadow-2xs transition group flex flex-col justify-between min-h-[110px]">
               <div>
@@ -666,7 +854,12 @@ function renderCounterSectionsView(container) {
                   <span class="font-mono font-extrabold text-lg text-slate-900 group-hover:text-sky-700">
                     Section ${sec.code}
                   </span>
-                  ${subSecCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">${subSecCount} sub</span>` : ''}
+                  <div class="flex items-center gap-1">
+                    <span class="text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${sHasStock ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-500'}">
+                      ${sHasStock ? 'Filled' : 'Empty'}
+                    </span>
+                    ${subSecCount > 0 ? `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 font-mono">${subSecCount} sub</span>` : ''}
+                  </div>
                 </div>
                 <div class="text-[11px] text-slate-500 mt-1">
                   ${subSecCount > 0 ? `${subSecCount} sub-section(s)` : 'Direct tray'}
@@ -679,7 +872,7 @@ function renderCounterSectionsView(container) {
               </div>
             </button>
           `;
-  }).join('')}
+        }).join('')}
       </div>
     </div>
   `;
@@ -738,6 +931,8 @@ function renderSectionProductsView(container) {
     totalQuantity += getNumericStock(p.allocatedQty);
   });
 
+  const subOcc = calculateSubSectionOccupancy(secData);
+
   container.innerHTML = `
     <!-- Header with Breadcrumbs -->
     <div class="bg-white rounded-xl shadow-xs border border-slate-200 p-5 sm:p-6 transition">
@@ -782,6 +977,28 @@ function renderSectionProductsView(container) {
           <div class="text-base font-extrabold text-slate-900 mt-0.5">${subSectionEntries.length}</div>
         </div>
       </div>
+
+      <!-- Sub-section Occupancy Banner (if sub-sections exist) -->
+      ${subOcc ? `
+        <div class="mt-3.5 p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+          <div class="font-bold text-slate-800 mb-1.5 flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <span>📊 Sub-section Occupancy</span>
+            </span>
+            <span class="text-[11px] text-slate-500 font-normal">Total: ${subOcc.totalSubSections} sub-section(s)</span>
+          </div>
+          <div class="flex flex-wrap gap-4 font-mono text-xs">
+            <div class="flex items-baseline gap-1.5 text-sky-900">
+              <span class="font-bold text-[10px] uppercase px-2 py-0.5 rounded bg-sky-100 text-sky-800 shrink-0">Filled: ${subOcc.filledCount}</span>
+              <span class="font-semibold text-slate-800">${subOcc.filledText || 'None'}</span>
+            </div>
+            <div class="flex items-baseline gap-1.5 text-slate-600">
+              <span class="font-bold text-[10px] uppercase px-2 py-0.5 rounded bg-slate-200 text-slate-700 shrink-0">Empty: ${subOcc.emptyCount}</span>
+              <span class="font-medium text-slate-500">${subOcc.emptyText || 'None'}</span>
+            </div>
+          </div>
+        </div>
+      ` : ''}
 
       <!-- Sub-sections Filter Pills (if sub-sections exist) -->
       ${subSectionEntries.length > 0 ? `

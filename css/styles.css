@@ -249,4 +249,249 @@ table thead th {
   background: #64748b;
 }
 
+/* ==========================================================================
+   RACK MAP & COUNTER MAP — GRID & LIST VIEW ENHANCEMENTS
+   ========================================================================== */
+.map-view-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+/* Print Container default (Screen hidden) */
+.print-report-container {
+  display: none !important;
+}
+
+/* ==========================================================================
+   DEDICATED FULL-MAP REPORT PRINT STYLESHEET (A4 & PDF FRIENDLY)
+   ========================================================================== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm 12mm 10mm;
+  }
+
+  /* Hide all interactive & screen-only UI components */
+  html, body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 9pt !important;
+    line-height: 1.35 !important;
+  }
+
+  header,
+  footer,
+  nav,
+  main,
+  #mobile-bottom-nav,
+  #toast-container,
+  #assign-product-modal,
+  #manage-maps-modal,
+  .no-print,
+  button,
+  input,
+  select {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Unhide dedicated report container */
+  #print-report-container,
+  .print-report-container {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .print-report {
+    width: 100% !important;
+    margin: 0 auto !important;
+  }
+
+  /* Report Document Header */
+  .print-header {
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+
+  .print-brand-title {
+    font-size: 16pt;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    color: #0f172a;
+    line-height: 1.1;
+  }
+
+  .print-report-title {
+    font-size: 12pt;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #334155;
+    margin-top: 2px;
+  }
+
+  .print-meta-line {
+    font-size: 8.5pt;
+    color: #64748b;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* Rack & Counter Card Blocks */
+  .print-rack-block,
+  .print-counter-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .print-rack-header,
+  .print-counter-header {
+    background: #f1f5f9;
+    padding: 8px 10px;
+    border-bottom: 1px solid #cbd5e1;
+  }
+
+  .print-rack-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .print-rack-name {
+    font-size: 11pt;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    color: #0f172a;
+  }
+
+  .print-rack-range {
+    font-size: 8.5pt;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: #334155;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .print-rack-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    font-size: 8pt;
+    color: #334155;
+    border-top: 1px dashed #cbd5e1;
+    padding-top: 4px;
+    margin-top: 4px;
+  }
+
+  /* Section Containers */
+  .print-sections-container {
+    padding: 6px 10px 10px 10px;
+  }
+
+  .print-section-block {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-top: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 3px;
+    padding: 6px 8px;
+    background: #fafafa;
+  }
+
+  .print-section-empty {
+    background: #f8fafc;
+    border-style: dashed;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 8px;
+  }
+
+  .print-section-title {
+    font-size: 8.5pt;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    color: #1e293b;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .print-section-empty .print-section-title {
+    margin-bottom: 0;
+  }
+
+  .print-section-badge {
+    font-size: 7.5pt;
+    font-weight: 600;
+    color: #64748b;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .print-empty-label {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #94a3b8;
+    letter-spacing: 0.05em;
+  }
+
+  .print-sub-tag {
+    font-size: 7.5pt;
+    font-weight: 700;
+    color: #0369a1;
+    background: #e0f2fe;
+    padding: 0 3px;
+    border-radius: 2px;
+  }
+
+  /* Compact Product Tables inside Print Sections */
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+    margin-top: 4px;
+    background: #ffffff;
+  }
+
+  .print-table th {
+    background: #f1f5f9;
+    color: #334155;
+    font-weight: 700;
+    text-align: left;
+    padding: 3px 5px;
+    border: 1px solid #cbd5e1;
+  }
+
+  .print-table td {
+    padding: 3px 5px;
+    border: 1px solid #e2e8f0;
+    color: #1e293b;
+    vertical-align: top;
+  }
+
+  .print-table tbody tr:nth-child(even) {
+    background: #f8fafc;
+  }
+
+  .print-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7.5pt;
+  }
+}
+
 

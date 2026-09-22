@@ -27,6 +27,7 @@ const STATIC_ASSETS = [
   './js/counterMap.js',
   './js/mapManager.js',
   './js/mapSearch.js',
+  './js/mapPrintService.js',
   './js/rackParser.js',
   './js/mapConfigData.js',
   './assets/icons/icon.svg',
