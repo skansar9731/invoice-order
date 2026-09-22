@@ -350,7 +350,7 @@ table thead th {
 
   /* Report Document Header */
   .print-header {
-    border-bottom: 2px solid #0f172a;
+    border-bottom: 2px solid #000000 !important;
     padding-bottom: 8px;
     margin-bottom: 12px;
   }
@@ -359,7 +359,7 @@ table thead th {
     font-size: 15pt;
     font-weight: 900;
     letter-spacing: 0.05em;
-    color: #0f172a;
+    color: #000000 !important;
     line-height: 1.1;
   }
 
@@ -367,17 +367,23 @@ table thead th {
     font-size: 11pt;
     font-weight: 800;
     letter-spacing: 0.02em;
-    color: #334155;
+    color: #000000 !important;
     margin-top: 2px;
   }
 
   .print-meta-line {
     font-size: 8pt;
-    color: #64748b;
+    color: #000000 !important;
+    font-weight: 600;
     margin-top: 3px;
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+
+  .print-meta-line span,
+  .print-meta-line b {
+    color: #000000 !important;
   }
 
   /* ==========================================================================
@@ -402,7 +408,7 @@ table thead th {
     break-inside: avoid-page !important;
     page-break-after: auto !important;
     break-after: auto !important;
-    border: 1px solid #cbd5e1 !important;
+    border: 1px solid #000000 !important;
     border-radius: 4px !important;
     padding: 6px 8px !important;
     background: #ffffff !important;
@@ -411,6 +417,7 @@ table thead th {
     justify-content: space-between !important;
     box-sizing: border-box !important;
     min-height: 105px !important;
+    color: #000000 !important;
   }
 
   .print-card-header-row {
@@ -424,24 +431,24 @@ table thead th {
     font-size: 9.5pt !important;
     font-weight: 800 !important;
     font-family: 'JetBrains Mono', monospace !important;
-    color: #0f172a !important;
+    color: #000000 !important;
   }
 
   .print-card-range {
     font-size: 7.5pt !important;
     font-weight: 700 !important;
     font-family: 'JetBrains Mono', monospace !important;
-    background: #f1f5f9 !important;
-    border: 1px solid #e2e8f0 !important;
+    background: #ffffff !important;
+    border: 1px solid #000000 !important;
     padding: 0 4px !important;
     border-radius: 3px !important;
-    color: #475569 !important;
+    color: #000000 !important;
   }
 
   .print-card-sec-count {
     font-size: 7.5pt !important;
-    color: #64748b !important;
-    font-weight: 500 !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
     margin-bottom: 3px !important;
   }
 
@@ -453,6 +460,7 @@ table thead th {
     font-family: 'JetBrains Mono', monospace !important;
     font-size: 7pt !important;
     line-height: 1.2 !important;
+    color: #000000 !important;
   }
 
   .print-occ-row {
@@ -460,6 +468,7 @@ table thead th {
     align-items: baseline !important;
     gap: 4px !important;
     overflow: hidden !important;
+    color: #000000 !important;
   }
 
   .print-occ-badge {
@@ -469,23 +478,26 @@ table thead th {
     padding: 0.5px 3px !important;
     border-radius: 2px !important;
     flex-shrink: 0 !important;
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    background: #ffffff !important;
   }
 
   .print-occ-badge.filled {
-    background: #dcfce7 !important;
-    color: #166534 !important;
-    border: 1px solid #bbf7d0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
   }
 
   .print-occ-badge.empty {
-    background: #f1f5f9 !important;
-    color: #475569 !important;
-    border: 1px solid #e2e8f0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
   }
 
   .print-occ-text {
-    font-weight: 600 !important;
-    color: #1e293b !important;
+    font-weight: 700 !important;
+    color: #000000 !important;
     letter-spacing: 0.02em !important;
     word-break: break-all !important;
   }
@@ -493,28 +505,40 @@ table thead th {
   .print-card-footer {
     padding-top: 4px !important;
     margin-top: 5px !important;
-    border-top: 1px solid #f1f5f9 !important;
+    border-top: 1px solid #000000 !important;
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
     font-size: 7.5pt !important;
+    color: #000000 !important;
   }
 
   .print-card-items {
-    color: #64748b !important;
-    font-weight: 500 !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
+  }
+
+  .print-card-items b {
+    color: #000000 !important;
+    font-weight: 800 !important;
   }
 
   .print-card-qty {
     font-weight: 700 !important;
+    color: #000000 !important;
+  }
+
+  .print-card-qty b {
+    color: #000000 !important;
+    font-weight: 800 !important;
   }
 
   .print-card-qty.has-qty {
-    color: #15803d !important;
+    color: #000000 !important;
   }
 
   .print-card-qty.no-qty {
-    color: #94a3b8 !important;
+    color: #000000 !important;
   }
 
   /* Rack & Counter Card Blocks (Single Detail Views) */
@@ -522,18 +546,20 @@ table thead th {
   .print-counter-block {
     page-break-inside: avoid;
     break-inside: avoid;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #000000;
     border-radius: 4px;
     margin-bottom: 16px;
     background: #ffffff;
     overflow: hidden;
+    color: #000000;
   }
 
   .print-rack-header,
   .print-counter-header {
-    background: #f1f5f9;
+    background: #ffffff;
     padding: 8px 10px;
-    border-bottom: 1px solid #cbd5e1;
+    border-bottom: 1px solid #000000;
+    color: #000000;
   }
 
   .print-rack-title-row {
@@ -547,15 +573,16 @@ table thead th {
     font-size: 11pt;
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
-    color: #0f172a;
+    color: #000000;
   }
 
   .print-rack-range {
     font-size: 8.5pt;
     font-weight: 700;
-    background: #e2e8f0;
-    color: #334155;
+    background: #ffffff;
+    color: #000000;
     padding: 1px 6px;
+    border: 1px solid #000000;
     border-radius: 3px;
     font-family: 'JetBrains Mono', monospace;
   }
@@ -565,10 +592,15 @@ table thead th {
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
     font-size: 8pt;
-    color: #334155;
-    border-top: 1px dashed #cbd5e1;
+    color: #000000;
+    border-top: 1px dashed #000000;
     padding-top: 4px;
     margin-top: 4px;
+  }
+
+  .print-rack-stats-grid div,
+  .print-rack-stats-grid b {
+    color: #000000;
   }
 
   /* Section Containers */
@@ -580,26 +612,29 @@ table thead th {
     page-break-inside: avoid;
     break-inside: avoid;
     margin-top: 8px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid #000000;
     border-radius: 3px;
     padding: 6px 8px;
-    background: #fafafa;
+    background: #ffffff;
+    color: #000000;
   }
 
   .print-section-empty {
-    background: #f8fafc;
+    background: #ffffff;
     border-style: dashed;
+    border-color: #000000;
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 5px 8px;
+    color: #000000;
   }
 
   .print-section-title {
     font-size: 8.5pt;
     font-weight: 800;
     font-family: 'JetBrains Mono', monospace;
-    color: #1e293b;
+    color: #000000;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -613,22 +648,23 @@ table thead th {
   .print-section-badge {
     font-size: 7.5pt;
     font-weight: 600;
-    color: #64748b;
+    color: #000000;
     font-family: 'Inter', sans-serif;
   }
 
   .print-empty-label {
     font-size: 8pt;
     font-weight: 700;
-    color: #94a3b8;
+    color: #000000;
     letter-spacing: 0.05em;
   }
 
   .print-sub-tag {
     font-size: 7.5pt;
     font-weight: 700;
-    color: #0369a1;
-    background: #e0f2fe;
+    color: #000000;
+    background: #ffffff;
+    border: 1px solid #000000;
     padding: 0 3px;
     border-radius: 2px;
   }
@@ -640,31 +676,37 @@ table thead th {
     font-size: 7.5pt;
     margin-top: 4px;
     background: #ffffff;
+    color: #000000;
   }
 
   .print-table th {
-    background: #f1f5f9;
-    color: #334155;
+    background: #ffffff;
+    color: #000000;
     font-weight: 700;
     text-align: left;
     padding: 3px 5px;
-    border: 1px solid #cbd5e1;
+    border: 1px solid #000000;
   }
 
   .print-table td {
     padding: 3px 5px;
-    border: 1px solid #e2e8f0;
-    color: #1e293b;
+    border: 1px solid #000000;
+    color: #000000;
     vertical-align: top;
   }
 
+  .print-table td b {
+    color: #000000;
+  }
+
   .print-table tbody tr:nth-child(even) {
-    background: #f8fafc;
+    background: #ffffff;
   }
 
   .print-mono {
     font-family: 'JetBrains Mono', monospace;
     font-size: 7.5pt;
+    color: #000000;
   }
 }
 
