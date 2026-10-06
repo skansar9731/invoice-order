@@ -33,8 +33,9 @@ export const TERM_EXPANSIONS = {
   'assy': 'assembly'
 };
 
-// In-memory exact lookup indexes for instant scanner matching (O(1))
+// In-memory exact lookup indexes for instant scanner & image matching (O(1))
 let partNumberMap = new Map(); // normalized (trimmed uppercase) partNumber -> Array of products
+let spaceLessPartNumberMap = new Map(); // normalized uppercase without spaces -> Array of products (OCR space resilience)
 let cleanPartNumberMap = new Map(); // clean alphanumeric partNumber -> Array of products
 
 /**
@@ -43,6 +44,7 @@ let cleanPartNumberMap = new Map(); // clean alphanumeric partNumber -> Array of
 export function invalidateSearchCache() {
   cachedProducts = null;
   partNumberMap = new Map();
+  spaceLessPartNumberMap = new Map();
   cleanPartNumberMap = new Map();
   lastCacheTime = 0;
 }
@@ -50,21 +52,23 @@ export function invalidateSearchCache() {
 /**
  * Ensure product cache is loaded in memory for ultra-fast keystroke search
  */
-export async function getCachedProducts(forceRefresh = false) {
+export async function getCachedProducts(forceRefresh = false, productsOverride = null) {
   const now = Date.now();
   if (cachedProducts && !forceRefresh && (now - lastCacheTime < CACHE_TTL_MS)) {
     return cachedProducts;
   }
 
-  const all = await getAllProducts();
+  const all = productsOverride || await getAllProducts();
   
   partNumberMap = new Map();
+  spaceLessPartNumberMap = new Map();
   cleanPartNumberMap = new Map();
 
   // Pre-tokenize and normalize for fast search
   cachedProducts = all.map(p => {
     const rawPart = (p.partNumber || '').trim();
     const normPart = rawPart.toUpperCase();
+    const noSpacePart = normPart.replace(/\s+/g, '');
     const cleanPart = normPart.replace(/[^A-Z0-9]/g, '');
     const normName = (p.productName || '').toUpperCase();
     const normRack = (p.rack || '').toUpperCase();
@@ -83,6 +87,13 @@ export async function getCachedProducts(forceRefresh = false) {
         partNumberMap.set(normPart, []);
       }
       partNumberMap.get(normPart).push(prod);
+    }
+
+    if (noSpacePart) {
+      if (!spaceLessPartNumberMap.has(noSpacePart)) {
+        spaceLessPartNumberMap.set(noSpacePart, []);
+      }
+      spaceLessPartNumberMap.get(noSpacePart).push(prod);
     }
 
     if (cleanPart) {
@@ -287,6 +298,59 @@ function scoreTokenAsPartNumber(token, products = []) {
 }
 
 /**
+ * Fast O(1) exact Part Number lookup in the existing Product Master.
+ * Normalizes input safely:
+ * - Trims leading/trailing whitespace
+ * - Converts to consistent uppercase
+ * - Removes accidental OCR whitespace where appropriate (e.g. "37100 AAE3109S" -> "37100AAE3109S")
+ * - Strictly PRESERVES meaningful characters like hyphens (-), slashes (/), letters, numbers
+ * - Clean alphanumeric matching for hyphenated variants (e.g. "35100-AAE-301S" vs "35100AAE301S")
+ *
+ * @param {string} rawPartNumber - Extracted Part Number
+ * @returns {Promise<Object|null>} Matched Product record or null
+ */
+export async function findExactPartNumberProduct(rawPartNumber) {
+  if (!rawPartNumber) return null;
+  const trimmed = String(rawPartNumber).trim();
+  if (!trimmed) return null;
+
+  await getCachedProducts();
+
+  const normTarget = trimmed.toUpperCase();
+
+  // 1. Direct exact normalized match in partNumberMap (O(1)) - preserves all hyphens, slashes, letters, digits
+  if (partNumberMap.has(normTarget)) {
+    const list = partNumberMap.get(normTarget);
+    if (list && list.length > 0) return list[0];
+  }
+
+  // 2. Intelligent OCR spacing normalization (e.g. "37100 AAE3109S" -> "37100AAE3109S")
+  const noSpaceTarget = normTarget.replace(/\s+/g, '');
+  if (noSpaceTarget && spaceLessPartNumberMap.has(noSpaceTarget)) {
+    const list = spaceLessPartNumberMap.get(noSpaceTarget);
+    if (list && list.length > 0) return list[0];
+  }
+
+  // 3. Clean alphanumeric match (e.g. "35100-AAE-301S" vs "35100AAE301S")
+  const cleanTarget = normTarget.replace(/[^A-Z0-9]/g, '');
+  if (cleanTarget.length >= 3 && cleanPartNumberMap.has(cleanTarget)) {
+    const list = cleanPartNumberMap.get(cleanTarget);
+    if (list && list.length > 0) return list[0];
+  }
+
+  // 4. Fallback linear scan across cached products
+  const products = await getCachedProducts();
+  const exact = products.find(p => {
+    const pNorm = (p.partNumber || '').trim().toUpperCase();
+    if (pNorm === normTarget) return true;
+    if (pNorm.replace(/\s+/g, '') === noSpaceTarget) return true;
+    return false;
+  });
+
+  return exact || null;
+}
+
+/**
  * Performs exact normalized Part Number search for scanner results
  * Only returns products with exact matching part numbers
  * @param {string} partNumber - Scanned or extracted part number
@@ -311,7 +375,21 @@ export async function searchExactPartNumber(partNumber) {
     };
   }
 
-  // 2. Clean match in cleanPartNumberMap (ignoring hyphens, spaces, e.g. 35100-AAE-301S vs 35100AAE301S)
+  // 2. Space-less match for OCR internal whitespace (O(1))
+  const noSpaceTarget = normTarget.replace(/\s+/g, '');
+  if (noSpaceTarget && spaceLessPartNumberMap.has(noSpaceTarget)) {
+    matches = spaceLessPartNumberMap.get(noSpaceTarget);
+    if (matches && matches.length > 0) {
+      return {
+        total: matches.length,
+        items: matches,
+        query: normTarget,
+        isExactScanner: true
+      };
+    }
+  }
+
+  // 3. Clean match in cleanPartNumberMap (ignoring hyphens, spaces, e.g. 35100-AAE-301S vs 35100AAE301S)
   const cleanTarget = normTarget.replace(/[^A-Z0-9]/g, '');
   if (cleanTarget.length >= 3) {
     matches = cleanPartNumberMap.get(cleanTarget);
@@ -325,9 +403,12 @@ export async function searchExactPartNumber(partNumber) {
     }
   }
 
-  // 3. Fallback scan across products if map did not match
+  // 4. Fallback scan across products if map did not match
   const products = await getCachedProducts();
-  const exact = products.filter(p => normalizePartNumber(p.partNumber) === normTarget);
+  const exact = products.filter(p => {
+    const pNorm = normalizePartNumber(p.partNumber);
+    return pNorm === normTarget || (noSpaceTarget && pNorm.replace(/\s+/g, '') === noSpaceTarget);
+  });
   if (exact.length > 0) {
     return {
       total: exact.length,

@@ -50,7 +50,14 @@ export const INITIAL_PRODUCTS = [
   { partNumber: '6301-2RS-SKF', productName: 'BEARING 6301 2RS SKF REAR', itemDetails: '6301-2RS-SKF BEARING 6301 2RS SKF REAR 155/-', stockQty: 30, rack: 'R-BRG 1', parentGroup: 'SKF', group: 'SKF', unit: 'Pcs.', rate: 155 },
   { partNumber: '13011-KCC-900', productName: 'PISTON RING SET STD SPLENDOR', itemDetails: '13011-KCC-900 PISTON RING SET STD SPLENDOR 340/-', stockQty: 15, rack: 'R-1 D', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 340 },
   { partNumber: '13012-KCC-900', productName: 'PISTON RING SET 0.25 SPLENDOR', itemDetails: '13012-KCC-900 PISTON RING SET 0.25 SPLENDOR 340/-', stockQty: 12, rack: 'R-1 D', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 340 },
-  { partNumber: '13013-KCC-900', productName: 'PISTON RING SET 0.50 SPLENDOR', itemDetails: '13013-KCC-900 PISTON RING SET 0.50 SPLENDOR 340/-', stockQty: 9, rack: 'R-1 D', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 340 }
+  { partNumber: '13013-KCC-900', productName: 'PISTON RING SET 0.50 SPLENDOR', itemDetails: '13013-KCC-900 PISTON RING SET 0.50 SPLENDOR 340/-', stockQty: 9, rack: 'R-1 D', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 340 },
+  { partNumber: '31201KG8004', productName: 'KARBON BRUSH', itemDetails: '31201KG8004 KARBON BRUSH 85/-', stockQty: 25, rack: 'R-7 B', parentGroup: 'HERO', group: 'HERO', unit: 'Pcs.', rate: 85 },
+  { partNumber: '95014723025', productName: 'SAID STAND SPRING', itemDetails: '95014723025 SAID STAND SPRING 35/-', stockQty: 50, rack: 'R-4 B', parentGroup: 'HERO', group: 'HERO', unit: 'Pcs.', rate: 35 },
+  { partNumber: '77300AAE300RS', productName: 'CALL SET RH', itemDetails: '77300AAE300RS CALL SET RH 420/-', stockQty: 8, rack: 'R-9 B', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 420 },
+  { partNumber: '77400AAE300RS', productName: 'CALL SET LH', itemDetails: '77400AAE300RS CALL SET LH 420/-', stockQty: 8, rack: 'R-9 B', parentGroup: 'HERO', group: 'HERO', unit: 'Set', rate: 420 },
+  { partNumber: '77235AAE300RS', productName: 'SENTER CAWER', itemDetails: '77235AAE300RS SENTER CAWER 210/-', stockQty: 12, rack: 'R-9 C', parentGroup: 'HERO', group: 'HERO', unit: 'Pcs.', rate: 210 },
+  { partNumber: '37100AAE3109S', productName: 'MITER ASSLY', itemDetails: '37100AAE3109S MITER ASSLY 1450/-', stockQty: 4, rack: 'R-7 A', parentGroup: 'HERO', group: 'HERO', unit: 'Pcs.', rate: 1450 },
+  { partNumber: '35100AAE301S', productName: 'KEY SINGEL', itemDetails: '35100AAE301S KEY SINGEL 380/-', stockQty: 15, rack: 'R-7 C', parentGroup: 'HERO', group: 'HERO', unit: 'Pcs.', rate: 380 }
 ];
 
 export const SAMPLE_ORDERS = [

@@ -55,62 +55,41 @@ exports.handler = async (event, context) => {
     const mimeType = match ? match[1] : 'image/jpeg';
     const data = match ? match[2] : imageBase64;
 
-    const systemPrompt = `You are an expert handwritten automobile spare-parts order reader.
+    const systemPrompt = `You are an expert automobile spare-parts order reader (extracting from handwritten slips, printed tables, and order images).
 
 Read the uploaded customer order image carefully.
 
-Extract EVERY distinct spare-part item visible in the handwritten order and its requested quantity.
+CRITICAL FIELD EXTRACTION RULES:
+For every distinct spare-part item visible in the order, extract these fields:
 
-Preserve the customer's wording as closely as possible.
+1. "partNumber":
+   - Identify columns, labels, or codes such as:
+     PART NUMBER, PART NO, PART NO., PART #, PART CODE, ITEM CODE, CODE, MODEL NO
+     or equivalent layouts.
+   - Do NOT assume a fixed column position. Look across the columns/headers.
+   - Extract the exact alphanumeric Part Number / Code (e.g. "31201KG8004", "95014723025", "77300AAE300RS", "37100AAE3109S", "35100AAE301S").
+   - Preserve all letters, numbers, hyphens, and slashes exactly.
+   - If no Part Number is written or readable for this line, return empty string "".
+   - Never invent or fabricate Part Numbers.
 
-The customer may use:
-- spelling mistakes
-- abbreviations
-- short forms
-- local terminology
-- automobile terminology
-- model names
-- incomplete words
+2. "itemDescription":
+   - Extract the Part Name / Item Description (e.g. "karbon brush", "SAID STAND SPRING", "CALL SET", "MITER ASSLY", "KEY SINGEL", "SAID STAND KIT").
+   - Preserve customer's spelling, abbreviations, and wording as closely as possible.
+   - Customer may use short forms: SPL, BS6, Pro, Dlx, Shine, Splendor, Passion, Teming, Bor kit, etc.
 
-Examples:
-Teming
-Timing
-Bor kit
-Clutch Assy
-SPL
-BS6
-Pro
-Dlx
-Shine
-Splendor
-Passion
+3. "quantity":
+   - Extract the quantity from columns/labels such as: QTY, QUANTITY, PIS, PCS, NOS, etc.
+   - If quantity is clearly written (e.g. 1, 2, 5, 10), return that integer.
+   - If quantity is genuinely not visible, default to 1.
 
-Do not skip an item merely because the handwriting is unclear.
+4. "customerText":
+   - Full raw text line for this item (e.g. "karbon brush 31201KG8004" or "SAID STAND KIT").
 
-If a handwritten line is partially unclear, return your best transcription of the visible characters/words instead of omitting the line.
-
-Never invent a completely unrelated product.
-
-Do not invent Part Numbers.
-
-Do not invent Rack.
-
-Do not invent Stock.
-
-Do not invent Unit.
-
-Read ALL visible handwritten order lines.
-
-If there are 5 items, return 5 items.
-If there are 10 items, return 10 items.
-
-If quantity is clearly written, use that quantity.
-
-If quantity is genuinely not visible, use quantity 1.
-
-Ignore printed logos, signatures, decorative borders and unrelated printed text.
-
-Return ONLY JSON.`;
+CRITICAL FORMAT RULES:
+- Read ALL visible order lines in sequence from top to bottom.
+- If there are 5 items, return 5 items. If there are 10 items, return 10 items.
+- Ignore printed company logos, decorative borders, stamps, and signatures.
+- Return ONLY valid JSON adhering strictly to the schema.`;
 
     // Call Gemini 3.6 Flash API via REST with x-goog-api-key header
     const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
@@ -136,10 +115,12 @@ Return ONLY JSON.`;
           items: {
             type: 'OBJECT',
             properties: {
-              customerText: { type: 'STRING' },
-              quantity: { type: 'INTEGER' }
+              partNumber: { type: 'STRING' },
+              itemDescription: { type: 'STRING' },
+              quantity: { type: 'INTEGER' },
+              customerText: { type: 'STRING' }
             },
-            required: ['customerText', 'quantity']
+            required: ['partNumber', 'itemDescription', 'quantity']
           }
         }
       }
@@ -202,12 +183,26 @@ Return ONLY JSON.`;
     const parsedItems = [];
     for (const row of rawItems) {
       if (!row) continue;
-      const customerText = String(row.customerText || row.item || row.name || '').trim();
-      const quantity = Math.max(1, parseInt(row.quantity || row.qty || 1, 10));
+      const partNumber = String(row.partNumber || row.partNo || row.part_code || row.code || '').trim();
+      const itemDescription = String(row.itemDescription || row.description || row.itemName || row.partName || row.name || '').trim();
+      const quantity = Math.max(1, parseInt(row.quantity || row.qty || row.pis || row.pcs || 1, 10));
 
-      if (customerText.length > 0) {
+      let customerText = String(row.customerText || '').trim();
+      if (!customerText) {
+        if (itemDescription && partNumber) {
+          customerText = `${itemDescription} ${partNumber}`;
+        } else {
+          customerText = itemDescription || partNumber;
+        }
+      }
+
+      const finalDescription = itemDescription || customerText;
+
+      if (finalDescription.length > 0 || partNumber.length > 0) {
         parsedItems.push({
-          customerText,
+          partNumber,
+          itemDescription: finalDescription,
+          customerText: customerText || finalDescription,
           quantity
         });
       }

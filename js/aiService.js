@@ -57,7 +57,7 @@ export function getAIStatus() {
 
 /**
  * Validate AI extracted items schema
- * Ensures returned payload strictly matches [{ customerText: string, quantity: number }]
+ * Ensures returned payload strictly matches [{ partNumber: string, itemDescription: string, customerText: string, quantity: number }]
  */
 export function validateAIExtraction(data) {
   if (!Array.isArray(data)) {
@@ -72,19 +72,33 @@ export function validateAIExtraction(data) {
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    const customerText = String(row.customerText || row.item || row.name || '').trim();
-    const quantity = Math.max(1, parseInt(row.quantity || row.qty || 1, 10));
+    const partNumber = String(row.partNumber || row.partNo || row.part_code || row.code || '').trim();
+    const itemDescription = String(row.itemDescription || row.description || row.itemName || row.partName || row.name || '').trim();
+    const quantity = Math.max(1, parseInt(row.quantity || row.qty || row.pis || row.pcs || 1, 10));
 
-    if (customerText.length > 0) {
+    let customerText = String(row.customerText || '').trim();
+    if (!customerText) {
+      if (itemDescription && partNumber) {
+        customerText = `${itemDescription} ${partNumber}`;
+      } else {
+        customerText = itemDescription || partNumber;
+      }
+    }
+
+    const finalDescription = itemDescription || customerText;
+
+    if (finalDescription.length > 0 || partNumber.length > 0) {
       validated.push({
-        customerText,
+        partNumber,
+        itemDescription: finalDescription,
+        customerText: customerText || finalDescription,
         quantity
       });
     }
   }
 
   if (validated.length === 0) {
-    throw new Error('Could not parse any valid product names from the handwriting image.');
+    throw new Error('Could not parse any valid product names or part numbers from the order image.');
   }
 
   return validated;

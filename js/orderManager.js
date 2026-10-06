@@ -3,7 +3,7 @@
  * Manages in-memory state of the active customer order during the shopkeeper's session
  */
 
-import { matchCustomerItem } from './matchingEngine.js';
+import { matchCustomerItem, matchOrderItem } from './matchingEngine.js';
 
 let currentOrder = {
   id: generateOrderId(),
@@ -151,7 +151,26 @@ export function setOrderItems(items = []) {
   notifyListeners();
 }
 
-export function addOrderItem(customerText, quantity = 1, rate = null) {
+export function addOrderItem(customerTextOrItem, quantity = 1, rate = null) {
+  let customerText = '';
+  let partNumber = '';
+  let itemDescription = '';
+
+  if (typeof customerTextOrItem === 'object' && customerTextOrItem !== null) {
+    partNumber = String(customerTextOrItem.partNumber || '').trim();
+    itemDescription = String(customerTextOrItem.itemDescription || '').trim();
+    customerText = String(customerTextOrItem.customerText || itemDescription || partNumber).trim();
+    if (customerTextOrItem.quantity !== undefined && quantity === 1) {
+      quantity = customerTextOrItem.quantity;
+    }
+    if (customerTextOrItem.rate !== undefined && rate === null) {
+      rate = customerTextOrItem.rate;
+    }
+  } else {
+    customerText = String(customerTextOrItem || '').trim();
+    itemDescription = customerText;
+  }
+
   const parsedQty = parseFloat(quantity);
   const finalQty = (!isNaN(parsedQty) && parsedQty > 0)
     ? (Number.isInteger(parsedQty) ? parsedQty : Number(parsedQty.toFixed(3)))
@@ -163,10 +182,14 @@ export function addOrderItem(customerText, quantity = 1, rate = null) {
   const newItem = {
     id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
     sNo: currentOrder.items.length + 1,
-    customerText: customerText.trim(),
+    partNumber: partNumber,
+    itemDescription: itemDescription || customerText,
+    customerText: customerText,
     quantity: finalQty,
     rate: finalRate,
     matchedProduct: null,
+    matchMethod: 'NONE',
+    matchStatus: 'UNMATCHED',
     confidence: 0,
     tier: 'NONE',
     isManual: false,
@@ -363,10 +386,16 @@ export function updateItemProduct(itemId, product, isManual = true) {
       item.isManual = isManual;
       item.confidence = isManual ? 100 : item.confidence;
       item.tier = isManual ? 'HIGH' : item.tier;
+      if (isManual) {
+        item.matchMethod = 'MANUAL';
+        item.matchStatus = 'MANUAL';
+      }
     } else {
       item.isManual = false;
       item.confidence = 0;
       item.tier = 'NONE';
+      item.matchMethod = 'NONE';
+      item.matchStatus = 'UNMATCHED';
     }
     notifyListeners();
   }
@@ -376,6 +405,7 @@ export function updateItemCustomerText(itemId, newText) {
   const item = currentOrder.items.find(i => i.id === itemId);
   if (item) {
     item.customerText = newText;
+    item.itemDescription = newText;
     notifyListeners();
   }
 }
@@ -389,9 +419,19 @@ export function removeOrderItem(itemId) {
 
 export async function rematchItem(itemId) {
   const item = currentOrder.items.find(i => i.id === itemId);
-  if (item && item.customerText) {
-    const match = await matchCustomerItem(item.customerText);
+  if (item) {
+    const match = await matchOrderItem({
+      partNumber: item.partNumber,
+      itemDescription: item.itemDescription,
+      customerText: item.customerText,
+      quantity: item.quantity
+    });
     item.matchedProduct = match.matchedProduct;
+    item.partNumber = match.partNumber || item.partNumber || '';
+    item.itemDescription = match.itemDescription || item.itemDescription || item.customerText || '';
+    item.customerText = match.customerText || item.customerText || '';
+    item.matchMethod = match.matchMethod;
+    item.matchStatus = match.matchStatus;
     item.confidence = match.confidence;
     item.tier = match.tier;
     item.isManual = false;

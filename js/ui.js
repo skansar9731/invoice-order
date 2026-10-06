@@ -1292,21 +1292,20 @@ export function renderOrderTable() {
     const stockQty = item.matchedProduct ? item.matchedProduct.stockQty : null;
     const isLowStock = stockQty !== null && stockQty < item.quantity;
 
-    // Match badge
+    // Match badge showing exact Match Method & Status
     let matchBadgeHtml = '';
     if (item.isManual) {
-      matchBadgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-100 text-sky-800 border border-sky-200">Manual</span>`;
+      matchBadgeHtml = `<span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-sky-100 text-sky-800 border border-sky-300 shadow-2xs">Manual</span>`;
+    } else if (item.matchMethod === 'PART_NUMBER' || (item.matchedProduct && item.confidence === 100 && !item.matchMethod)) {
+      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">✓ Matched by Part Number</span>`;
+    } else if (item.matchMethod === 'DESCRIPTION' || item.matchStatus === 'PART_NUMBER_NOT_FOUND_MATCHED_DESC' || item.matchStatus === 'MATCHED_DESCRIPTION') {
+      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-extrabold bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs">✓ Matched by Description</span>`;
     } else if (item.matchedProduct) {
-      const conf = item.confidence || 0;
-      if (conf >= 80) {
-        matchBadgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">${conf}% Match</span>`;
-      } else if (conf >= 50) {
-        matchBadgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">${conf}% Match</span>`;
-      } else {
-        matchBadgeHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-200">${conf}% Low</span>`;
-      }
+      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">✓ Matched by Part Number</span>`;
+    } else if (item.matchStatus === 'PART_NUMBER_NOT_FOUND' || (item.partNumber && !item.matchedProduct)) {
+      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-extrabold bg-rose-100 text-rose-700 border border-rose-300 shadow-2xs">⚠ Part number not found</span>`;
     } else {
-      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-700 border border-rose-300 animate-pulse">⚠ No Match</span>`;
+      matchBadgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-extrabold bg-rose-100 text-rose-700 border border-rose-300 shadow-2xs animate-pulse">⚠ No Match</span>`;
     }
 
     // Candidate options dropdown HTML
@@ -1335,10 +1334,15 @@ export function renderOrderTable() {
       row.innerHTML = `
         <td class="px-3 py-3 text-center text-xs font-semibold text-slate-500">${index + 1}</td>
         <td class="px-3 py-3">
-          <div class="font-medium text-slate-800 text-sm flex items-center gap-2">
-            <span>${escapeHtml(item.customerText)}</span>
+          <div class="font-bold text-slate-900 text-sm flex items-center justify-between gap-1.5">
+            <span>${escapeHtml(item.itemDescription || item.customerText || '—')}</span>
             ${item.sourceImage ? `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded font-mono font-bold" title="Extracted from Image #${item.sourceImage}">#P${item.sourceImage}</span>` : ''}
-            <button data-action="edit-customer-text" data-item-id="${item.id}" title="Edit customer handwritten wording" class="text-slate-400 hover:text-slate-600 text-xs">✎</button>
+          </div>
+          <div class="text-xs text-slate-600 font-mono mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span class="text-slate-400 font-sans font-medium">Part No:</span>
+            <span class="font-black ${item.partNumber ? 'text-slate-800' : 'text-slate-400 italic font-normal'}">${escapeHtml(item.partNumber || 'Not Available')}</span>
+            ${(item.matchStatus === 'PART_NUMBER_NOT_FOUND' || item.matchStatus === 'PART_NUMBER_NOT_FOUND_MATCHED_DESC') ? `<span class="text-[10px] text-rose-600 font-sans font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200">Not in Master</span>` : ''}
+            <button data-action="edit-customer-text" data-item-id="${item.id}" title="Edit customer wording or part number" class="text-slate-400 hover:text-slate-600 text-xs ml-0.5">✎</button>
           </div>
         </td>
         <td class="px-3 py-3 text-center">
@@ -1423,7 +1427,6 @@ export function renderOrderTable() {
             <span class="font-extrabold text-slate-900 text-xs uppercase tracking-tight">S.No</span>
             <span class="w-6 h-6 rounded-full bg-slate-900 text-white font-mono text-xs font-bold flex items-center justify-center">${index + 1}</span>
             ${item.sourceImage ? `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded font-mono font-bold border border-slate-300">#P${item.sourceImage}</span>` : ''}
-            ${matchBadgeHtml}
           </div>
           <div class="flex items-center gap-1">
             <button type="button" data-action="rematch" data-item-id="${item.id}" title="Re-run matching" class="p-1 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 rounded text-xs font-semibold">🔄</button>
@@ -1431,12 +1434,26 @@ export function renderOrderTable() {
           </div>
         </div>
 
-        <!-- Customer Handwritten Text -->
+        <!-- Match Method Badge -->
+        <div class="pt-0.5">
+          ${matchBadgeHtml}
+        </div>
+
+        <!-- Item Description -->
         <div class="border-b border-slate-200 pb-2">
-          <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Customer Handwritten Text</div>
+          <div class="font-extrabold text-slate-900 text-xs mb-1 uppercase tracking-tight">Item Description</div>
           <div class="font-bold text-slate-900 text-sm flex items-center justify-between gap-2">
-            <span>${escapeHtml(item.customerText)}</span>
+            <span>${escapeHtml(item.itemDescription || item.customerText || '—')}</span>
             <button type="button" data-action="edit-customer-text" data-item-id="${item.id}" title="Edit customer wording" class="text-slate-500 hover:text-slate-800 text-xs px-2 py-0.5 bg-slate-100 rounded border border-slate-200 font-semibold">✎ Edit</button>
+          </div>
+        </div>
+
+        <!-- Part Number -->
+        <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
+          <span class="font-extrabold text-slate-900 uppercase tracking-tight">Part Number</span>
+          <div class="flex items-center gap-1">
+            <span class="font-mono font-bold ${item.partNumber ? 'text-slate-900' : 'text-slate-400 italic'}">${escapeHtml(item.partNumber || 'Not Available')}</span>
+            ${(item.matchStatus === 'PART_NUMBER_NOT_FOUND' || item.matchStatus === 'PART_NUMBER_NOT_FOUND_MATCHED_DESC') ? `<span class="text-[10px] text-rose-600 font-sans font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200">Not in Master</span>` : ''}
           </div>
         </div>
 

@@ -4,7 +4,7 @@
  * Uses multi-tier scoring (Exact, Token Overlap, Automobile Synonyms/Aliases, Fuzzy Levenshtein)
  */
 
-import { getCachedProducts } from './productSearch.js';
+import { getCachedProducts, findExactPartNumberProduct } from './productSearch.js';
 
 // Comprehensive Automobile terminology, Hinglish slang & abbreviation dictionary
 const AUTOMOBILE_SYNONYM_MAP = {
@@ -258,8 +258,168 @@ export async function matchCustomerItem(customerText) {
 }
 
 /**
+ * Match a single order item with STRICT priority:
+ *
+ * PRIORITY 1: PART NUMBER (Exact Match)
+ * PRIORITY 2: ITEM DESCRIPTION (Fallback only)
+ *
+ * The system must NEVER reverse this priority.
+ *
+ * - IF a Part Number is available:
+ *   Use extracted Part Number to search existing Product Master FIRST.
+ *   Use exact Part Number matching with safe normalization.
+ *   IF an exact match exists:
+ *     MATCH THE PRODUCT.
+ *     STOP MATCHING.
+ *     Do NOT perform description matching for that line.
+ *     Do NOT replace exact Part Number match with description match.
+ *
+ * - IF Part Number exists BUT exact match is NOT found in Product Master:
+ *   Do not pretend it was a Part Number match.
+ *   Try description matching as a SECONDARY fallback.
+ *   If description produces a candidate:
+ *     Mark matchMethod = 'DESCRIPTION'
+ *     Mark matchStatus = 'PART_NUMBER_NOT_FOUND_MATCHED_DESC'
+ *   If description produces no candidate:
+ *     Mark matchMethod = 'NONE'
+ *     Mark matchStatus = 'PART_NUMBER_NOT_FOUND'
+ *
+ * - ONLY if Part Number is missing / unreadable:
+ *   Use description matching.
+ *   If matched: matchMethod = 'DESCRIPTION', matchStatus = 'MATCHED_DESCRIPTION'
+ *   If unmatched: matchMethod = 'NONE', matchStatus = 'UNMATCHED'
+ *
+ * @param {Object|string} item - Order item object { partNumber, itemDescription, customerText, quantity } or string
+ * @returns {Promise<Object>} Complete match result
+ */
+export async function matchOrderItem(item = {}) {
+  let rawPartNumber = '';
+  let rawDescription = '';
+  let rawCustomerText = '';
+
+  if (typeof item === 'string') {
+    rawCustomerText = item.trim();
+  } else if (item && typeof item === 'object') {
+    rawPartNumber = String(item.partNumber || '').trim();
+    rawDescription = String(item.itemDescription || '').trim();
+    rawCustomerText = String(item.customerText || '').trim();
+  }
+
+  // If partNumber was not explicitly provided, check if customerText contains an exact Part Number
+  if (!rawPartNumber && rawCustomerText) {
+    const wholeExact = await findExactPartNumberProduct(rawCustomerText);
+    if (wholeExact) {
+      rawPartNumber = rawCustomerText;
+    } else {
+      // Split into whitespace tokens and check each token against product master part numbers
+      const tokens = rawCustomerText.split(/\s+/).filter(t => t.length >= 3);
+      for (const tok of tokens) {
+        const tokExact = await findExactPartNumberProduct(tok);
+        if (tokExact) {
+          rawPartNumber = tok;
+          if (!rawDescription) {
+            rawDescription = rawCustomerText.replace(tok, '').trim();
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  const finalDescription = rawDescription || rawCustomerText;
+
+  // ========================================================
+  // PRIORITY 1: PART NUMBER MATCHING FIRST
+  // ========================================================
+  if (rawPartNumber) {
+    const exactProduct = await findExactPartNumberProduct(rawPartNumber);
+    if (exactProduct) {
+      // EXACT PART NUMBER FOUND!
+      // STOP MATCHING IMMEDIATELY. Do NOT perform description matching.
+      return {
+        partNumber: rawPartNumber,
+        itemDescription: finalDescription || exactProduct.productName || '',
+        customerText: rawCustomerText || `${finalDescription} ${rawPartNumber}`.trim(),
+        matchedProduct: exactProduct,
+        matchMethod: 'PART_NUMBER',
+        matchStatus: 'MATCHED_PART_NUMBER',
+        confidence: 100,
+        tier: 'HIGH',
+        candidates: []
+      };
+    }
+
+    // Part number was extracted but NO exact match exists in Product Master
+    // Use description as secondary fallback, but clearly mark the method & status
+    let descFallbackResult = null;
+    if (finalDescription) {
+      descFallbackResult = await matchCustomerItem(finalDescription);
+    }
+
+    if (descFallbackResult && descFallbackResult.matchedProduct) {
+      return {
+        partNumber: rawPartNumber,
+        itemDescription: finalDescription,
+        customerText: rawCustomerText || finalDescription,
+        matchedProduct: descFallbackResult.matchedProduct,
+        matchMethod: 'DESCRIPTION',
+        matchStatus: 'PART_NUMBER_NOT_FOUND_MATCHED_DESC',
+        confidence: descFallbackResult.confidence,
+        tier: descFallbackResult.tier,
+        candidates: descFallbackResult.candidates
+      };
+    }
+
+    // Part number not found in master and description produced no reliable match
+    return {
+      partNumber: rawPartNumber,
+      itemDescription: finalDescription,
+      customerText: rawCustomerText || finalDescription,
+      matchedProduct: null,
+      matchMethod: 'NONE',
+      matchStatus: 'PART_NUMBER_NOT_FOUND',
+      confidence: 0,
+      tier: 'NONE',
+      candidates: (descFallbackResult && descFallbackResult.candidates) || []
+    };
+  }
+
+  // ========================================================
+  // PRIORITY 2: ITEM DESCRIPTION MATCHING (Part Number Missing)
+  // ========================================================
+  const descResult = await matchCustomerItem(finalDescription || rawCustomerText);
+
+  if (descResult && descResult.matchedProduct) {
+    return {
+      partNumber: '',
+      itemDescription: finalDescription || rawCustomerText,
+      customerText: rawCustomerText || finalDescription,
+      matchedProduct: descResult.matchedProduct,
+      matchMethod: 'DESCRIPTION',
+      matchStatus: 'MATCHED_DESCRIPTION',
+      confidence: descResult.confidence,
+      tier: descResult.tier,
+      candidates: descResult.candidates
+    };
+  }
+
+  return {
+    partNumber: '',
+    itemDescription: finalDescription || rawCustomerText,
+    customerText: rawCustomerText || finalDescription,
+    matchedProduct: null,
+    matchMethod: 'NONE',
+    matchStatus: 'UNMATCHED',
+    confidence: 0,
+    tier: 'NONE',
+    candidates: (descResult && descResult.candidates) || []
+  };
+}
+
+/**
  * Batch match an entire array of customer extracted order items
- * @param {Array<{customerText: string, quantity: number}>} items
+ * Uses strict Part Number First priority for each line.
+ * @param {Array<Object>} items - Array of items
  * @returns {Promise<Array>} Array of matched order items ready for review table
  */
 export async function matchAllOrderItems(items) {
@@ -267,14 +427,19 @@ export async function matchAllOrderItems(items) {
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    const matchResult = await matchCustomerItem(item.customerText);
+    const matchResult = await matchOrderItem(item);
 
     results.push({
       id: 'item-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 4),
       sNo: i + 1,
-      customerText: item.customerText,
+      partNumber: matchResult.partNumber || item.partNumber || '',
+      itemDescription: matchResult.itemDescription || item.itemDescription || item.customerText || '',
+      customerText: item.customerText || matchResult.customerText || '',
       quantity: Number(item.quantity) || 1,
+      rate: (item.rate !== undefined && item.rate !== null && item.rate !== '') ? Number(item.rate) : null,
       matchedProduct: matchResult.matchedProduct,
+      matchMethod: matchResult.matchMethod,
+      matchStatus: matchResult.matchStatus,
       confidence: matchResult.confidence,
       tier: matchResult.tier,
       isManual: false,

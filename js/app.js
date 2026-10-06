@@ -586,7 +586,9 @@ export async function processBatchExtraction() {
 
       // Tag items with sourceImage number (1-based index)
       imgRecord.extractedItems = (rawItems || []).map(item => ({
-        customerText: item.customerText,
+        partNumber: item.partNumber || '',
+        itemDescription: item.itemDescription || item.customerText || '',
+        customerText: item.customerText || item.itemDescription || '',
         quantity: item.quantity,
         sourceImage: i + 1
       }));
@@ -651,7 +653,9 @@ export async function syncOrderItemsFromImages() {
       completedCount++;
       img.extractedItems.forEach(item => {
         allExtractedItems.push({
-          customerText: item.customerText,
+          partNumber: item.partNumber || '',
+          itemDescription: item.itemDescription || item.customerText || '',
+          customerText: item.customerText || item.itemDescription || '',
           quantity: item.quantity,
           sourceImage: idx + 1
         });
