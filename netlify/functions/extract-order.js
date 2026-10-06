@@ -55,46 +55,44 @@ exports.handler = async (event, context) => {
     const mimeType = match ? match[1] : 'image/jpeg';
     const data = match ? match[2] : imageBase64;
 
-    const systemPrompt = `You are an expert automobile spare-parts order reader (extracting from handwritten slips, printed tables, and order images).
+    const systemPrompt = `You are an expert automobile spare-parts order reader (skilled in reading handwritten order slips, workshop notes, and printed tables).
 
 Read the uploaded customer order image carefully.
 
-CRITICAL FIELD EXTRACTION RULES:
-For every distinct spare-part item visible in the order, extract these fields:
+Extract EVERY distinct spare-part item visible in the order and its requested quantity.
 
-1. "partNumber":
-   - Identify columns, labels, or codes such as:
-     PART NUMBER, PART NO, PART NO., PART #, PART CODE, ITEM CODE, CODE, MODEL NO
-     or equivalent layouts.
-   - Do NOT assume a fixed column position. Look across the columns/headers.
-   - Extract the exact alphanumeric Part Number / Code (e.g. "31201KG8004", "95014723025", "77300AAE300RS", "37100AAE3109S", "35100AAE301S").
-   - Preserve all letters, numbers, hyphens, and slashes exactly.
-   - If no Part Number is written or readable for this line, return empty string "".
-   - Never invent or fabricate Part Numbers.
+The order may contain columns or headers such as:
+- PART NAME / ITEM DESCRIPTION / PARTICULARS / PRODUCT
+- PART NUMBER / PART NO / PART NO. / PART # / PART CODE / ITEM CODE / CODE / MODEL NO
+- QTY / QUANTITY / PIS / PCS / NOS
+or it may be handwritten lines without clear column headers.
 
-2. "itemDescription":
-   - Extract the Part Name / Item Description (e.g. "karbon brush", "SAID STAND SPRING", "CALL SET", "MITER ASSLY", "KEY SINGEL", "SAID STAND KIT").
-   - Preserve customer's spelling, abbreviations, and wording as closely as possible.
-   - Customer may use short forms: SPL, BS6, Pro, Dlx, Shine, Splendor, Passion, Teming, Bor kit, etc.
+FOR EVERY DISTINCT ORDER LINE, EXTRACT:
+1. "customerText": The complete text of this line as written on the slip (e.g. "karbon brush 31201KG8004 5", "MITER ASSLY 37100AAE3109S 1", "SAID STAND KIT 2").
+2. "partNumber": If a Part Number, OEM Code, or Model Code is visible (in a column or written next to the item), extract it exactly (e.g. "31201KG8004", "95014723025", "77300AAE300RS", "37100AAE3109S", "35100AAE301S"). Preserve all letters, numbers, hyphens, and slashes. If no Part Number is written or visible for this line, return "". Do not invent fake part numbers.
+3. "itemDescription": The part name or item description (e.g. "karbon brush", "SAID STAND SPRING", "CALL SET", "MITER ASSLY", "KEY SINGEL", "SAID STAND KIT").
+4. "quantity": The requested quantity as an integer. If clearly written, use that quantity. If genuinely not visible, use 1.
 
-3. "quantity":
-   - Extract the quantity from columns/labels such as: QTY, QUANTITY, PIS, PCS, NOS, etc.
-   - If quantity is clearly written (e.g. 1, 2, 5, 10), return that integer.
-   - If quantity is genuinely not visible, default to 1.
+HANDWRITING & SLIP TOLERANCE:
+The customer may use:
+- spelling mistakes, abbreviations, short forms (e.g. SPL, BS6, Pro, Dlx, Shine, Splendor, Passion, Teming, Bor kit, Clutch Assy)
+- local automotive slang
 
-4. "customerText":
-   - Full raw text line for this item (e.g. "karbon brush 31201KG8004" or "SAID STAND KIT").
+Do not skip an item merely because the handwriting is unclear.
+If a handwritten line is partially unclear, return your best transcription of the visible characters/words instead of omitting the line.
+Never invent completely unrelated products.
+Read ALL visible order lines from top to bottom.
+Ignore printed logos, signatures, and decorative borders.
+Return ONLY a valid JSON array.`;
 
-CRITICAL FORMAT RULES:
-- Read ALL visible order lines in sequence from top to bottom.
-- If there are 5 items, return 5 items. If there are 10 items, return 10 items.
-- Ignore printed company logos, decorative borders, stamps, and signatures.
-- Return ONLY valid JSON adhering strictly to the schema.`;
+    const candidateModels = [
+      'gemini-3.6-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash'
+    ];
 
-    // Call Gemini 3.6 Flash API via REST with x-goog-api-key header
-    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent';
-
-    const geminiBody = {
+    const geminiBodyWithSchema = {
       contents: [
         {
           parts: [
@@ -115,43 +113,97 @@ CRITICAL FORMAT RULES:
           items: {
             type: 'OBJECT',
             properties: {
-              partNumber: { type: 'STRING' },
+              customerText: { type: 'STRING' },
               itemDescription: { type: 'STRING' },
-              quantity: { type: 'INTEGER' },
-              customerText: { type: 'STRING' }
+              partNumber: { type: 'STRING' },
+              quantity: { type: 'INTEGER' }
             },
-            required: ['partNumber', 'itemDescription', 'quantity']
+            required: ['customerText', 'quantity']
           }
         }
       }
     };
 
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey
-      },
-      body: JSON.stringify(geminiBody)
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      let safeMsg = 'Gemini API call failed';
-      try {
-        const errObj = JSON.parse(errText);
-        safeMsg = errObj.error?.message || safeMsg;
-      } catch (e) {
-        safeMsg = `Gemini API error (${response.status})`;
+    const geminiBodyPlainJson = {
+      contents: [
+        {
+          parts: [
+            { text: `${systemPrompt}\n\nIMPORTANT: Return a JSON array of objects with keys: customerText, itemDescription, partNumber, quantity.` },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: data
+              }
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        response_mime_type: 'application/json'
       }
+    };
+
+    let geminiData = null;
+    let lastError = 'No response from AI model';
+
+    // Model and schema fallback loop
+    for (const model of candidateModels) {
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+      // Try 1: Structured schema
+      try {
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify(geminiBodyWithSchema)
+        });
+
+        if (response.ok) {
+          geminiData = await response.json();
+          break;
+        } else {
+          const errText = await response.text();
+          let msg = `API error (${response.status})`;
+          try {
+            const errObj = JSON.parse(errText);
+            msg = errObj.error?.message || msg;
+          } catch (e) {}
+          lastError = `${model}: ${msg}`;
+
+          // If 400 Bad Request, try plain JSON mode on the same model
+          if (response.status === 400) {
+            try {
+              const plainResp = await fetch(geminiUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-goog-api-key': apiKey
+                },
+                body: JSON.stringify(geminiBodyPlainJson)
+              });
+              if (plainResp.ok) {
+                geminiData = await plainResp.json();
+                break;
+              }
+            } catch (pErr) {}
+          }
+        }
+      } catch (fetchErr) {
+        lastError = `${model}: ${fetchErr.message}`;
+      }
+    }
+
+    if (!geminiData) {
       return {
-        statusCode: response.status,
+        statusCode: 502,
         headers,
-        body: JSON.stringify({ error: safeMsg })
+        body: JSON.stringify({ error: lastError })
       };
     }
 
-    const geminiData = await response.json();
     const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
     // Parse JSON
@@ -174,6 +226,10 @@ CRITICAL FORMAT RULES:
     if (!Array.isArray(rawItems)) {
       if (rawItems && Array.isArray(rawItems.items)) {
         rawItems = rawItems.items;
+      } else if (rawItems && typeof rawItems === 'object') {
+        const arrKey = Object.keys(rawItems).find(k => Array.isArray(rawItems[k]));
+        if (arrKey) rawItems = rawItems[arrKey];
+        else rawItems = [rawItems];
       } else {
         rawItems = [];
       }
@@ -185,24 +241,29 @@ CRITICAL FORMAT RULES:
       if (!row) continue;
       const partNumber = String(row.partNumber || row.partNo || row.part_code || row.code || '').trim();
       const itemDescription = String(row.itemDescription || row.description || row.itemName || row.partName || row.name || '').trim();
+      const customerText = String(row.customerText || '').trim();
       const quantity = Math.max(1, parseInt(row.quantity || row.qty || row.pis || row.pcs || 1, 10));
 
-      let customerText = String(row.customerText || '').trim();
-      if (!customerText) {
-        if (itemDescription && partNumber) {
-          customerText = `${itemDescription} ${partNumber}`;
+      let finalCustomerText = customerText;
+      let finalDescription = itemDescription;
+
+      if (!finalCustomerText) {
+        if (finalDescription && partNumber) {
+          finalCustomerText = `${finalDescription} ${partNumber}`;
         } else {
-          customerText = itemDescription || partNumber;
+          finalCustomerText = finalDescription || partNumber;
         }
       }
 
-      const finalDescription = itemDescription || customerText;
+      if (!finalDescription) {
+        finalDescription = finalCustomerText;
+      }
 
-      if (finalDescription.length > 0 || partNumber.length > 0) {
+      if (finalCustomerText.length > 0 || finalDescription.length > 0 || partNumber.length > 0) {
         parsedItems.push({
           partNumber,
           itemDescription: finalDescription,
-          customerText: customerText || finalDescription,
+          customerText: finalCustomerText || finalDescription,
           quantity
         });
       }

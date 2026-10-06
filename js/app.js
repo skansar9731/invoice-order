@@ -678,7 +678,9 @@ export async function syncOrderItemsFromImages() {
     }
   } else if (failedImages.length > 0) {
     updateAIStatusBadge(false);
-    showToast(`Failed to extract items from ${failedImages.join(', ')}. Please retry.`, 'warning', 7000);
+    const firstErr = uploadedImages.find(img => img.status === 'error' && img.error)?.error;
+    const msg = firstErr ? `${failedImages.join(', ')} failed: ${firstErr}` : `Failed to extract items from ${failedImages.join(', ')}. Please retry.`;
+    showToast(msg, 'warning', 8000);
   } else {
     resetOrder();
   }
@@ -797,7 +799,7 @@ export function renderImageGallery() {
     } else if (img.status === 'error') {
       statusBadge = `
         <div class="flex items-center gap-1">
-          <span class="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-semibold">✕ Failed</span>
+          <span class="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-semibold cursor-help" title="${escapeHtml(img.error || 'Extraction failed')}">✕ Failed</span>
           <button type="button" data-retry-img="${escapeHtml(img.id)}" class="text-[10px] text-sky-700 hover:text-sky-900 font-bold underline">Retry</button>
         </div>
       `;
