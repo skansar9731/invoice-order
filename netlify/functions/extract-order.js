@@ -14,21 +14,14 @@ const MODEL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Fallback static list of candidate models in order of capability & speed
+ * (Used ONLY if dynamic ListModels discovery is unreachable)
  */
 const STATIC_CANDIDATE_MODELS = [
   'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.5-flash',
   'gemini-3.6-flash',
-  'gemini-3.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-exp',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
-  'gemini-3.1-pro',
-  'gemini-1.5-pro'
+  'gemini-2.5-flash'
 ];
 
 /**
