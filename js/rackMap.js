@@ -13,7 +13,7 @@
 import { getAllProducts } from './db.js';
 import { INITIAL_RACKS_SPEC, generateSections } from './mapConfigData.js';
 import { parseProductRack, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './rackParser.js';
-import { showToast, renderOrderTable } from './ui.js';
+import { showToast, renderOrderTable, showAddToOrderModal } from './ui.js';
 import { addOrderItem } from './orderManager.js';
 import { searchRackMap } from './mapSearch.js';
 import { calculateSectionOccupancy, calculateSubSectionOccupancy, printSingleRackReport, printRackOverviewReport } from './mapPrintService.js';
@@ -597,13 +597,7 @@ function renderRackSearchResults(container, searchRes) {
       const prodKey = btn.dataset.addToOrder;
       const product = currentProductMaster.find(p => p.id === prodKey || p.partNumber === prodKey);
       if (product) {
-        const item = addOrderItem(product.itemDetails || product.productName, 1);
-        item.matchedProduct = product;
-        item.isManual = true;
-        item.confidence = 100;
-        item.tier = 'HIGH';
-        renderOrderTable();
-        showToast(`Added "${product.productName || product.partNumber}" to order`, 'success');
+        showAddToOrderModal(product);
       }
     });
   });

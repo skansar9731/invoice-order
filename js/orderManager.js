@@ -151,12 +151,21 @@ export function setOrderItems(items = []) {
   notifyListeners();
 }
 
-export function addOrderItem(customerText, quantity = 1) {
+export function addOrderItem(customerText, quantity = 1, rate = null) {
+  const parsedQty = parseFloat(quantity);
+  const finalQty = (!isNaN(parsedQty) && parsedQty > 0)
+    ? (Number.isInteger(parsedQty) ? parsedQty : Number(parsedQty.toFixed(3)))
+    : 1;
+
+  const parsedRate = (rate !== null && rate !== undefined && rate !== '') ? parseFloat(rate) : null;
+  const finalRate = (parsedRate !== null && !isNaN(parsedRate)) ? parsedRate : null;
+
   const newItem = {
     id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
     sNo: currentOrder.items.length + 1,
     customerText: customerText.trim(),
-    quantity: Math.max(1, parseInt(quantity, 10) || 1),
+    quantity: finalQty,
+    rate: finalRate,
     matchedProduct: null,
     confidence: 0,
     tier: 'NONE',
@@ -169,10 +178,166 @@ export function addOrderItem(customerText, quantity = 1) {
   return newItem;
 }
 
+/**
+ * Locate all existing order items that match the given product by unique Part Number or Product ID
+ * @param {Object} product
+ * @returns {Array<Object>}
+ */
+export function findExistingOrderItemsByProduct(product) {
+  if (!product || !currentOrder || !Array.isArray(currentOrder.items)) return [];
+  const prodPart = (product.partNumber || '').trim().toUpperCase();
+  const prodId = product.id || null;
+
+  return currentOrder.items.filter(item => {
+    const itemPart = ((item.matchedProduct && item.matchedProduct.partNumber) || item.partNumber || '').trim().toUpperCase();
+    const itemId = (item.matchedProduct && item.matchedProduct.id) || item.productId || null;
+
+    if (prodId && itemId && itemId === prodId) return true;
+    if (prodPart && itemPart && itemPart === prodPart) return true;
+    return false;
+  });
+}
+
+/**
+ * Locate an existing order item that matches the given product
+ * @param {Object} product
+ * @returns {Object|null}
+ */
+export function findExistingOrderItemByProduct(product) {
+  const matches = findExistingOrderItemsByProduct(product);
+  return matches.length > 0 ? matches[0] : null;
+}
+
+/**
+ * Extract clean numeric rate from an order item
+ * @param {Object} item
+ * @returns {number|null}
+ */
+export function getItemNumericRate(item) {
+  if (!item) return null;
+  const raw = (item.rate !== null && item.rate !== undefined && item.rate !== '')
+    ? item.rate
+    : (item.matchedProduct && item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? item.matchedProduct.rate : null);
+  if (raw === null || raw === undefined || raw === '') return null;
+  const num = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[^0-9.]/g, ''));
+  return (!isNaN(num)) ? num : null;
+}
+
+/**
+ * Creates and adds a new order entry for a product
+ * @param {Object} product - Product record
+ * @param {number|string} quantity - Final quantity
+ * @param {number|string|null} rate - Final rate
+ * @returns {Object} Newly created order item
+ */
+export function addNewOrderProduct(product, quantity = 1, rate = null) {
+  if (!product) return null;
+
+  const parsedQty = parseFloat(quantity);
+  const finalQty = (!isNaN(parsedQty) && parsedQty > 0)
+    ? (Number.isInteger(parsedQty) ? parsedQty : Number(parsedQty.toFixed(3)))
+    : 1;
+
+  const parsedRate = (rate !== null && rate !== undefined && rate !== '') ? parseFloat(rate) : null;
+  const finalRate = (parsedRate !== null && !isNaN(parsedRate))
+    ? parsedRate
+    : ((product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null));
+
+  const customerText = product.itemDetails || product.productName || product.partNumber || 'Manual Item';
+  const newItem = {
+    id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+    sNo: currentOrder.items.length + 1,
+    customerText: customerText.trim(),
+    quantity: finalQty,
+    rate: finalRate,
+    matchedProduct: {
+      id: product.id,
+      partNumber: product.partNumber,
+      productName: product.productName,
+      itemDetails: product.itemDetails || '',
+      rack: product.rack || '',
+      unit: product.unit || '',
+      stockQty: (product.stockQty !== null && product.stockQty !== undefined) ? Number(product.stockQty) : null,
+      rate: finalRate
+    },
+    confidence: 100,
+    tier: 'HIGH',
+    isManual: true,
+    candidates: []
+  };
+
+  currentOrder.items.push(newItem);
+  notifyListeners();
+  return newItem;
+}
+
+/**
+ * Adds a product to the active order or updates existing entry if product already exists with the same rate.
+ * Reuses existing order/cart data structure and updates the entry with final Quantity and Rate values.
+ * @param {Object} product - Product record
+ * @param {number|string} quantity - Final quantity
+ * @param {number|string|null} rate - Final rate (overrides master rate)
+ * @returns {{ item: Object, isNew: boolean }}
+ */
+export function addOrUpdateOrderProduct(product, quantity = 1, rate = null) {
+  if (!product) return null;
+
+  const parsedQty = parseFloat(quantity);
+  const finalQty = (!isNaN(parsedQty) && parsedQty > 0)
+    ? (Number.isInteger(parsedQty) ? parsedQty : Number(parsedQty.toFixed(3)))
+    : 1;
+
+  const parsedRate = (rate !== null && rate !== undefined && rate !== '') ? parseFloat(rate) : null;
+  const finalRate = (parsedRate !== null && !isNaN(parsedRate))
+    ? parsedRate
+    : ((product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null));
+
+  const matchingItems = findExistingOrderItemsByProduct(product);
+  // Locate item with identical numeric rate
+  const sameRateItem = matchingItems.find(item => {
+    const itemRate = getItemNumericRate(item);
+    if (itemRate === null && finalRate === null) return true;
+    if (itemRate !== null && finalRate !== null) {
+      return Math.abs(itemRate - finalRate) < 0.0001;
+    }
+    return false;
+  });
+
+  if (sameRateItem) {
+    // Update existing order entry instead of creating a duplicate line
+    sameRateItem.quantity = finalQty;
+    sameRateItem.rate = finalRate;
+
+    if (!sameRateItem.matchedProduct) {
+      sameRateItem.matchedProduct = { ...product };
+    }
+    sameRateItem.matchedProduct.rate = finalRate;
+    if (product.partNumber) sameRateItem.matchedProduct.partNumber = product.partNumber;
+    if (product.productName) sameRateItem.matchedProduct.productName = product.productName;
+    if (product.rack) sameRateItem.matchedProduct.rack = product.rack;
+    if (product.unit) sameRateItem.matchedProduct.unit = product.unit;
+    if (product.stockQty !== null && product.stockQty !== undefined) sameRateItem.matchedProduct.stockQty = Number(product.stockQty);
+
+    sameRateItem.isManual = true;
+    sameRateItem.confidence = 100;
+    sameRateItem.tier = 'HIGH';
+
+    notifyListeners();
+    return { item: sameRateItem, isNew: false };
+  } else {
+    // Create new order entry
+    const newItem = addNewOrderProduct(product, finalQty, finalRate);
+    return { item: newItem, isNew: true };
+  }
+}
+
 export function updateItemQuantity(itemId, quantity) {
   const item = currentOrder.items.find(i => i.id === itemId);
   if (item) {
-    item.quantity = Math.max(1, parseInt(quantity, 10) || 1);
+    const parsed = parseFloat(quantity);
+    item.quantity = (!isNaN(parsed) && parsed > 0)
+      ? (Number.isInteger(parsed) ? parsed : Number(parsed.toFixed(3)))
+      : 1;
     notifyListeners();
   }
 }
@@ -181,15 +346,20 @@ export function updateItemProduct(itemId, product, isManual = true) {
   const item = currentOrder.items.find(i => i.id === itemId);
   if (item) {
     item.matchedProduct = product ? {
+      id: product.id,
       partNumber: product.partNumber,
       productName: product.productName,
+      itemDetails: product.itemDetails || '',
       rack: product.rack || '',
       unit: product.unit || '',
       stockQty: (product.stockQty !== null && product.stockQty !== undefined) ? Number(product.stockQty) : null,
-      rate: (product.rate !== null && product.rate !== undefined) ? Number(product.rate) : null
+      rate: (product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null)
     } : null;
     
     if (product) {
+      if (item.rate === null || item.rate === undefined || item.rate === '') {
+        item.rate = (product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null);
+      }
       item.isManual = isManual;
       item.confidence = isManual ? 100 : item.confidence;
       item.tier = isManual ? 'HIGH' : item.tier;

@@ -44,7 +44,7 @@ export async function buildBusyOrderWorkbook(order) {
   const orderNo = order.orderNo || 'ORDER';
   const filename = `${orderNo}_Busy_Entry_Sheet.xlsx`;
 
-  // 1. Busy Sheet (10 columns)
+  // 1. Busy Sheet (11 columns)
   const busyHeaders = [
     'S. No',
     'Customer Handwritten Text',
@@ -54,6 +54,7 @@ export async function buildBusyOrderWorkbook(order) {
     'MRP',
     'Available stock',
     'Rack No',
+    'Group',
     'Confidence',
     'Action'
   ];
@@ -67,17 +68,19 @@ export async function buildBusyOrderWorkbook(order) {
     row.mrp,
     row.availableStock,
     row.rackNo,
+    row.group || '',
     row.confidence,
     row.action
   ]);
 
-  // 2. Easy Software Format Sheet (5 columns matching exact user format: Item Details, Qty., Unit, MRP, Rack)
+  // 2. Easy Software Format Sheet (6 columns: Item Details, Qty., Unit, MRP, Rack, Group)
   const easyHeaders = [
     'Item Details',
     'Qty.',
     'Unit',
     'MRP',
-    'Rack'
+    'Rack',
+    'Group'
   ];
 
   const easyRows = exportRows.map(row => [
@@ -85,7 +88,8 @@ export async function buildBusyOrderWorkbook(order) {
     formatStockQty(row.qty),
     row.unit || 'Pcs.',
     row.mrpNum !== null ? row.mrpNum : (row.mrp || ''),
-    row.rackNo || ''
+    row.rackNo || '',
+    row.group || ''
   ]);
 
   let wb = null;
@@ -93,7 +97,7 @@ export async function buildBusyOrderWorkbook(order) {
     const XLSX = window.XLSX;
     wb = XLSX.utils.book_new();
 
-    // Sheet 1: Busy Entry Sheet (10 columns - Product Table unchanged)
+    // Sheet 1: Busy Entry Sheet (11 columns)
     const wsBusy = XLSX.utils.aoa_to_sheet([busyHeaders, ...busyRows]);
     wsBusy['!cols'] = [
       { wch: 8 },  // S. No
@@ -104,19 +108,21 @@ export async function buildBusyOrderWorkbook(order) {
       { wch: 12 }, // MRP
       { wch: 16 }, // Available stock
       { wch: 12 }, // Rack No
+      { wch: 16 }, // Group
       { wch: 14 }, // Confidence
       { wch: 14 }  // Action
     ];
     XLSX.utils.book_append_sheet(wb, wsBusy, 'Busy Entry Sheet');
 
-    // Sheet 2: Easy Software Format (5 columns - Product Table unchanged)
+    // Sheet 2: Easy Software Format (6 columns: Item Details, Qty., Unit, MRP, Rack, Group)
     const wsEasy = XLSX.utils.aoa_to_sheet([easyHeaders, ...easyRows]);
     wsEasy['!cols'] = [
       { wch: 46 }, // Item Details
       { wch: 12 }, // Qty.
       { wch: 10 }, // Unit
       { wch: 12 }, // MRP
-      { wch: 14 }  // Rack
+      { wch: 14 }, // Rack
+      { wch: 16 }  // Group
     ];
     XLSX.utils.book_append_sheet(wb, wsEasy, 'Easy Software Format');
 

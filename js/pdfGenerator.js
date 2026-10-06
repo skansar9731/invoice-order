@@ -81,7 +81,10 @@ export async function buildBusyOrderPDFDoc(order) {
     // Rack (from Product Master, blank if missing)
     const rackStr = row.rackNo || '';
 
-    return [itemDetail, qtyStr, unitStr, mrpStr, rackStr];
+    // Group (from Product Master, blank if missing)
+    const groupStr = row.group || '';
+
+    return [itemDetail, qtyStr, unitStr, mrpStr, rackStr, groupStr];
   });
 
   // Add Totals Footer Row
@@ -90,6 +93,7 @@ export async function buildBusyOrderPDFDoc(order) {
     totalQty.toFixed(3),
     'Pcs.',
     '',
+    '',
     ''
   ]);
 
@@ -97,7 +101,7 @@ export async function buildBusyOrderPDFDoc(order) {
   doc.autoTable({
     startY: 25,
     margin: { left: margin, right: margin, bottom: 16 },
-    head: [['Item Details', 'Qty.', 'Unit', 'MRP', 'Rack']],
+    head: [['Item Details', 'Qty.', 'Unit', 'MRP', 'Rack', 'Group']],
     body: tableRows,
     theme: 'plain',
     styles: {
@@ -118,11 +122,12 @@ export async function buildBusyOrderPDFDoc(order) {
       lineWidth: 0.35
     },
     columnStyles: {
-      0: { cellWidth: 105, fontStyle: 'normal', overflow: 'linebreak' }, // Item Details (allows full multi-line text wrapping)
-      1: { cellWidth: 20, halign: 'right', fontStyle: 'normal' },        // Qty.
-      2: { cellWidth: 18, halign: 'left', fontStyle: 'normal' },         // Unit
-      3: { cellWidth: 25, halign: 'right', fontStyle: 'normal' },        // MRP
-      4: { cellWidth: 22, halign: 'left', fontStyle: 'normal' }          // Rack
+      0: { cellWidth: 84, fontStyle: 'normal', overflow: 'linebreak' }, // Item Details (allows full multi-line text wrapping)
+      1: { cellWidth: 18, halign: 'right', fontStyle: 'normal' },        // Qty.
+      2: { cellWidth: 16, halign: 'left', fontStyle: 'normal' },         // Unit
+      3: { cellWidth: 24, halign: 'right', fontStyle: 'normal' },        // MRP
+      4: { cellWidth: 24, halign: 'left', fontStyle: 'normal' },         // Rack
+      5: { cellWidth: 24, halign: 'left', fontStyle: 'normal' }          // Group
     },
     didParseCell: function (data) {
       // Bold the header and the Totals footer row

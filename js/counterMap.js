@@ -20,7 +20,7 @@
 import { getAllProducts } from './db.js';
 import { INITIAL_COUNTERS_SPEC, generateSections } from './mapConfigData.js';
 import { parseProductCounter, UNASSIGNED_SECTION_CODE, distributeQuantityAcrossSections } from './rackParser.js';
-import { showToast, renderOrderTable } from './ui.js';
+import { showToast, renderOrderTable, showAddToOrderModal } from './ui.js';
 import { addOrderItem } from './orderManager.js';
 import { searchCounterMap } from './mapSearch.js';
 import { calculateSectionOccupancy, calculateSubSectionOccupancy, printSingleCounterReport, printCounterOverviewReport } from './mapPrintService.js';
@@ -607,13 +607,7 @@ function renderCounterSearchResults(container, searchRes) {
       const prodKey = btn.dataset.addToOrder;
       const product = currentProductMaster.find(p => p.id === prodKey || p.partNumber === prodKey);
       if (product) {
-        const item = addOrderItem(product.itemDetails || product.productName, 1);
-        item.matchedProduct = product;
-        item.isManual = true;
-        item.confidence = 100;
-        item.tier = 'HIGH';
-        renderOrderTable();
-        showToast(`Added "${product.productName || product.partNumber}" to order`, 'success');
+        showAddToOrderModal(product);
       }
     });
   });

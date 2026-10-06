@@ -26,10 +26,18 @@ import {
   refreshDashboardStats,
   handleGeneratePDFClick,
   formatItemDetails,
-  updateExportButtonState
+  updateExportButtonState,
+  showAddToOrderModal
 } from './ui.js';
 import { exportStockMasterExcel } from './excelGenerator.js';
-import { searchLocalProducts, debounce, invalidateSearchCache } from './productSearch.js';
+import {
+  searchLocalProducts,
+  searchExactPartNumber,
+  extractPartNumberFromScannedText,
+  isQRPayload,
+  debounce,
+  invalidateSearchCache
+} from './productSearch.js';
 import { initializeGoogleDrive } from './googleDriveService.js';
 import { loadRackMap } from './rackMap.js';
 import { loadCounterMap } from './counterMap.js';
@@ -395,6 +403,14 @@ function initOrderEntryEvents() {
             value: '1',
             min: '1',
             required: true
+          },
+          {
+            id: 'rate',
+            label: 'MRP',
+            placeholder: '0.00',
+            prefix: '₹',
+            type: 'text',
+            inputmode: 'decimal'
           }
         ],
         confirmText: 'Add to Order',
@@ -404,9 +420,20 @@ function initOrderEntryEvents() {
 
       if (result && result.itemName && result.itemName.trim()) {
         const qty = parseInt(result.quantity, 10) || 1;
-        addOrderItem(result.itemName.trim(), Math.max(1, qty));
+        const rawRate = result.rate ? String(result.rate).replace(/[^0-9.]/g, '').trim() : '';
+        const parsedRate = rawRate !== '' ? parseFloat(rawRate) : null;
+        const rate = (parsedRate !== null && !isNaN(parsedRate)) ? parsedRate : null;
+
+        addOrderItem(result.itemName.trim(), Math.max(1, qty), rate);
         renderOrderTable();
-        showToast(`Added "${result.itemName.trim()}" (${Math.max(1, qty)} pcs) to order`, 'success');
+
+        const formattedQty = Math.max(1, qty);
+        const formattedRate = rate !== null ? `₹${Number(rate).toLocaleString('en-IN')}` : null;
+        showToast({
+          title: `Added "${result.itemName.trim()}" to order`,
+          qty: formattedQty,
+          ...(formattedRate ? { rate: formattedRate } : {})
+        }, 'success');
       }
     });
   }
@@ -1124,19 +1151,92 @@ async function executeStockImport(isReplace = false) {
  */
 function initQuickSearchEvents() {
   const searchInput = document.getElementById('finder-search-input');
-  const resultsContainer = document.getElementById('finder-results-container');
-  const countBadge = document.getElementById('finder-results-count');
+  if (!searchInput) return;
 
-  if (searchInput) {
-    const debouncedFinder = debounce(async (query) => {
-      const res = await searchLocalProducts(query, 50);
+  let lastKeyTime = 0;
+  let rapidKeyCount = 0;
+  let isScannerTyping = false;
+  let scannerTimer = null;
+  let manualDebounceTimer = null;
+
+  async function processScannerPayload(rawVal) {
+    clearTimeout(scannerTimer);
+    clearTimeout(manualDebounceTimer);
+    isScannerTyping = false;
+    rapidKeyCount = 0;
+
+    const extraction = await extractPartNumberFromScannedText(rawVal);
+    const extractedPartNo = (extraction.partNumber || rawVal).trim();
+
+    // 1. Replace the entire search input value with ONLY the extracted Part Number
+    searchInput.value = extractedPartNo;
+
+    // 2. Automatically perform exact Part Number search against product master
+    const res = await searchExactPartNumber(extractedPartNo);
+    renderQuickSearchResults(res);
+  }
+
+  // Detect fast keystroke timing characteristic of physical handheld scanners (Retsol D2060N)
+  searchInput.addEventListener('keydown', (e) => {
+    const now = Date.now();
+    const delta = now - lastKeyTime;
+    lastKeyTime = now;
+
+    if (delta < 50) {
+      rapidKeyCount++;
+      if (rapidKeyCount >= 3) {
+        isScannerTyping = true;
+      }
+    } else {
+      rapidKeyCount = 0;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(scannerTimer);
+      clearTimeout(manualDebounceTimer);
+
+      const val = searchInput.value;
+      if (isQRPayload(val) || isScannerTyping) {
+        processScannerPayload(val);
+      } else {
+        // Manual search trigger on Enter
+        (async () => {
+          const res = await searchLocalProducts(val, 50);
+          renderQuickSearchResults(res);
+        })();
+      }
+    }
+  });
+
+  searchInput.addEventListener('input', (e) => {
+    const val = e.target.value;
+    clearTimeout(scannerTimer);
+    clearTimeout(manualDebounceTimer);
+
+    // 1. Delimited QR payload pattern detected (e.g. '/' separated fields)
+    if (isQRPayload(val)) {
+      // Wait 60ms for scanner to finish transmitting all characters
+      scannerTimer = setTimeout(() => {
+        processScannerPayload(searchInput.value);
+      }, 60);
+      return;
+    }
+
+    // 2. Rapid scanner keystroke sequence detected (e.g. 1D barcode of part number)
+    if (isScannerTyping) {
+      scannerTimer = setTimeout(() => {
+        processScannerPayload(searchInput.value);
+      }, 70);
+      return;
+    }
+
+    // 3. Normal manual typing: preserve existing search behavior
+    manualDebounceTimer = setTimeout(async () => {
+      const res = await searchLocalProducts(val, 50);
       renderQuickSearchResults(res);
     }, 150);
-
-    searchInput.addEventListener('input', (e) => {
-      debouncedFinder(e.target.value);
-    });
-  }
+  });
 }
 
 async function loadQuickSearchInitial() {
@@ -1151,18 +1251,44 @@ function renderQuickSearchResults(searchResult) {
   const countBadge = document.getElementById('finder-results-count');
   if (!resultsContainer) return;
 
+  const isExactScanner = !!searchResult.isExactScanner;
+
   if (countBadge) {
-    countBadge.textContent = `${searchResult.total.toLocaleString()} total products matching`;
+    if (isExactScanner) {
+      if (searchResult.total === 1) {
+        countBadge.textContent = '1 exact product found';
+        countBadge.className = 'text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 self-start md:self-auto';
+      } else if (searchResult.total > 1) {
+        countBadge.textContent = `${searchResult.total.toLocaleString()} exact products found`;
+        countBadge.className = 'text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 self-start md:self-auto';
+      } else {
+        countBadge.textContent = '0 products matching';
+        countBadge.className = 'text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200 self-start md:self-auto';
+      }
+    } else {
+      countBadge.textContent = `${searchResult.total.toLocaleString()} total products matching`;
+      countBadge.className = 'text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 self-start md:self-auto';
+    }
   }
 
   if (searchResult.items.length === 0) {
-    resultsContainer.innerHTML = `
-      <div class="py-12 text-center text-slate-500">
-        <div class="text-3xl mb-2">🔍</div>
-        <div class="font-semibold text-slate-700">No parts found</div>
-        <div class="text-xs text-slate-400 mt-1">Try another search term or part number</div>
-      </div>
-    `;
+    if (isExactScanner) {
+      resultsContainer.innerHTML = `
+        <div class="py-12 text-center text-slate-500">
+          <div class="text-3xl mb-2">🔍</div>
+          <div class="font-bold text-slate-800 text-base">No exact part number found.</div>
+          <div class="text-xs text-slate-400 mt-1">Part number <span class="font-mono font-bold text-slate-700">"${escapeHtml(searchResult.query || '')}"</span> was not found in the local product master.</div>
+        </div>
+      `;
+    } else {
+      resultsContainer.innerHTML = `
+        <div class="py-12 text-center text-slate-500">
+          <div class="text-3xl mb-2">🔍</div>
+          <div class="font-semibold text-slate-700">No parts found</div>
+          <div class="text-xs text-slate-400 mt-1">Try another search term or part number</div>
+        </div>
+      `;
+    }
     return;
   }
 
@@ -1275,13 +1401,7 @@ function renderQuickSearchResults(searchResult) {
       const partNo = btn.dataset.addToOrder;
       const product = searchResult.items.find(p => p.partNumber === partNo);
       if (product) {
-        const item = addOrderItem(product.productName, 1);
-        item.matchedProduct = product;
-        item.isManual = true;
-        item.confidence = 100;
-        item.tier = 'HIGH';
-        renderOrderTable();
-        showToast(`Added "${product.productName}" to order`, 'success');
+        showAddToOrderModal(product);
       }
     });
   });

@@ -2,7 +2,13 @@
  * UI Components, Modals, Toast Notifications, and Table Renderers
  */
 
-import { searchLocalProducts, debounce } from './productSearch.js';
+import {
+  searchLocalProducts,
+  searchExactPartNumber,
+  extractPartNumberFromScannedText,
+  isQRPayload,
+  debounce
+} from './productSearch.js';
 import {
   getCurrentOrder,
   updateItemQuantity,
@@ -11,7 +17,12 @@ import {
   removeOrderItem,
   rematchItem,
   getOrderSummary,
-  addOrderItem
+  addOrderItem,
+  addOrUpdateOrderProduct,
+  findExistingOrderItemByProduct,
+  findExistingOrderItemsByProduct,
+  getItemNumericRate,
+  addNewOrderProduct
 } from './orderManager.js';
 import { generateBusyOrderPDF, generateBusyOrderPDFBlob } from './pdfGenerator.js';
 import { generateBusyOrderExcel, generateBusyOrderExcelBlob } from './excelGenerator.js';
@@ -84,11 +95,45 @@ export function showToast(message, type = 'info', duration = 3500) {
 
   toast.className = `pointer-events-auto flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border backdrop-blur-md shadow-xl text-xs sm:text-sm font-medium transform transition-all duration-300 -translate-y-2 opacity-0 ${cfg.card}`;
 
+  let contentHtml = '';
+  if (typeof message === 'object' && message !== null) {
+    const mainTitle = message.title || message.message || '';
+    const qtyVal = message.qty !== undefined && message.qty !== null ? message.qty : null;
+    const rateVal = message.rate !== undefined && message.rate !== null ? message.rate : null;
+
+    if (qtyVal !== null || rateVal !== null) {
+      contentHtml = `
+        <div class="flex-1 min-w-0 leading-snug pt-0.5">
+          <div class="font-semibold text-white text-xs sm:text-sm leading-snug">${escapeHtml(String(mainTitle))}</div>
+          <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-xs font-bold text-emerald-400 font-mono tracking-wide">
+            ${qtyVal !== null ? `<span>QTY: ${escapeHtml(String(qtyVal))}</span>` : ''}
+            ${rateVal !== null ? `<span>RATE: ${escapeHtml(String(rateVal))}</span>` : ''}
+          </div>
+        </div>
+      `;
+    } else {
+      contentHtml = `<span class="flex-1 leading-snug break-words pt-0.5">${escapeHtml(String(mainTitle))}</span>`;
+    }
+  } else {
+    const strMsg = String(message || '');
+    if (strMsg.includes('\n')) {
+      const lines = strMsg.split('\n').filter(Boolean);
+      contentHtml = `
+        <div class="flex-1 min-w-0 leading-snug pt-0.5">
+          <div class="font-semibold text-white text-xs sm:text-sm leading-snug">${escapeHtml(lines[0] || '')}</div>
+          ${lines.slice(1).map(l => `<div class="mt-1 text-xs font-bold text-emerald-400 font-mono tracking-wide">${escapeHtml(l)}</div>`).join('')}
+        </div>
+      `;
+    } else {
+      contentHtml = `<span class="flex-1 leading-snug break-words pt-0.5">${escapeHtml(strMsg)}</span>`;
+    }
+  }
+
   toast.innerHTML = `
     <span class="flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs ${cfg.badge}">
       ${cfg.icon}
     </span>
-    <span class="flex-1 leading-snug break-words pt-0.5">${escapeHtml(String(message || ''))}</span>
+    ${contentHtml}
     <button type="button" class="toast-close-btn flex-shrink-0 text-slate-400 hover:text-white transition p-1 -mr-1 -mt-1 rounded-md text-xs font-bold leading-none" aria-label="Dismiss notification">
       ✕
     </button>
@@ -310,24 +355,49 @@ export function showPromptModal({
     // Build form inputs HTML
     let inputsHtml = '';
     if (isMultiField) {
-      inputsHtml = fields.map((f, idx) => `
-        <div class="space-y-1">
-          <label for="prompt-field-${idx}" class="block text-xs font-bold text-slate-700">
-            ${escapeHtml(f.label || f.id)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}
-          </label>
-          <input
-            id="prompt-field-${idx}"
-            data-field-id="${escapeHtml(f.id)}"
-            type="${f.type || 'text'}"
-            value="${escapeHtml(String(f.value ?? ''))}"
-            placeholder="${escapeHtml(f.placeholder || '')}"
-            ${f.required ? 'required' : ''}
-            ${f.min !== undefined ? `min="${f.min}"` : ''}
-            ${f.max !== undefined ? `max="${f.max}"` : ''}
-            class="prompt-input-el w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all"
-          />
-        </div>
-      `).join('');
+      inputsHtml = fields.map((f, idx) => {
+        const inputAttrs = `
+          id="prompt-field-${idx}"
+          data-field-id="${escapeHtml(f.id)}"
+          type="${f.type || 'text'}"
+          ${f.inputmode ? `inputmode="${escapeHtml(f.inputmode)}"` : ''}
+          value="${escapeHtml(String(f.value ?? ''))}"
+          placeholder="${escapeHtml(f.placeholder || '')}"
+          ${f.required ? 'required' : ''}
+          ${f.min !== undefined ? `min="${f.min}"` : ''}
+          ${f.max !== undefined ? `max="${f.max}"` : ''}
+          ${f.step !== undefined ? `step="${f.step}"` : ''}
+        `;
+
+        if (f.prefix) {
+          return `
+            <div class="space-y-1">
+              <label for="prompt-field-${idx}" class="block text-xs font-bold text-slate-700">
+                ${escapeHtml(f.label || f.id)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}
+              </label>
+              <div class="relative flex rounded-xl shadow-xs">
+                <span class="inline-flex items-center px-3.5 rounded-l-xl border border-r-0 border-slate-300 bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm select-none">${escapeHtml(f.prefix)}</span>
+                <input
+                  ${inputAttrs}
+                  class="prompt-input-el w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-r-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all font-medium"
+                />
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="space-y-1">
+            <label for="prompt-field-${idx}" class="block text-xs font-bold text-slate-700">
+              ${escapeHtml(f.label || f.id)} ${f.required ? '<span class="text-rose-500">*</span>' : ''}
+            </label>
+            <input
+              ${inputAttrs}
+              class="prompt-input-el w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all font-medium"
+            />
+          </div>
+        `;
+      }).join('');
     } else {
       inputsHtml = `
         <div class="space-y-1">
@@ -609,6 +679,557 @@ export function showAlertModal({
 }
 
 /**
+ * Confirmation modal when adding a duplicate product with a different rate/MRP
+ * @param {Object} options
+ * @param {number|string|null} options.existingRate
+ * @param {number|string|null} options.newRate
+ * @param {string} [options.partNumber]
+ * @returns {Promise<boolean>} Resolves true if Continue, false if Cancel
+ */
+export function showDifferentRateConfirmModal({ existingRate, newRate, partNumber = '' }) {
+  return new Promise((resolve) => {
+    const existingRateStr = (existingRate !== null && existingRate !== undefined && existingRate !== '')
+      ? `₹${Number(existingRate).toLocaleString('en-IN')}`
+      : '—';
+    const newRateStr = (newRate !== null && newRate !== undefined && newRate !== '')
+      ? `₹${Number(newRate).toLocaleString('en-IN')}`
+      : '—';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10020] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border border-amber-300 bg-amber-50 text-amber-600 shadow-xs">
+              ⚠
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">Product already added.</h3>
+              <p class="text-xs text-slate-500 mt-0.5">Different MRP detected for this item</p>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Body Message -->
+        <div class="p-5 space-y-3.5">
+          <p class="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+            Do you want to add this product with a different MRP?
+          </p>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+            ${partNumber ? `
+              <div class="flex items-center justify-between text-xs pb-2 border-b border-slate-200">
+                <span class="text-slate-500 font-bold uppercase tracking-tight text-[11px]">Part Number</span>
+                <span class="font-mono font-black text-slate-800">${escapeHtml(partNumber)}</span>
+              </div>
+            ` : ''}
+            <div class="flex items-center justify-between py-0.5 text-xs sm:text-sm">
+              <span class="text-slate-600 font-bold">Existing Rate:</span>
+              <span class="font-mono font-extrabold text-slate-800">${escapeHtml(existingRateStr)}</span>
+            </div>
+            <div class="flex items-center justify-between py-0.5 text-xs sm:text-sm">
+              <span class="text-slate-600 font-bold">New Rate:</span>
+              <span class="font-mono font-extrabold text-emerald-600 text-sm sm:text-base">${escapeHtml(newRateStr)}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Actions: [Cancel] [Continue] -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
+          <button type="button" class="btn-cancel w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 font-bold text-xs sm:text-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-400">
+            Cancel
+          </button>
+          <button type="button" class="btn-continue w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1 flex items-center justify-center gap-1.5">
+            <span>Continue</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const btnContinue = overlay.querySelector('.btn-continue');
+    const btnCancel = overlay.querySelector('.btn-cancel');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+
+    let isClosed = false;
+    const finish = (result) => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+      }, 200);
+      resolve(result);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    btnContinue.addEventListener('click', () => finish(true));
+    btnCancel.addEventListener('click', () => finish(false));
+    btnCloseX.addEventListener('click', () => finish(false));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(false);
+    });
+
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      btnContinue.focus();
+    });
+  });
+}
+
+/**
+ * Small pre-confirmation modal displayed when the user attempts to add a product
+ * that already exists in the current order (matched strictly by unique Part Number or ID).
+ *
+ * Title: Product Already in Order
+ * Message: "This product is already added to your order. Would you like to update its quantity and rate?"
+ * Buttons: [No, Keep Current]    [Yes, Update]
+ *
+ * @param {Object} product - Product record
+ * @returns {Promise<boolean>} Resolves true if "Yes, Update", false if "No, Keep Current" or closed
+ */
+export function showProductAlreadyInOrderModal(product) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10020] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border border-slate-200 bg-white text-slate-800 shadow-xs">
+              ℹ️
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">Product Already in Order</h3>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Body Message (Clean, simple, no Quantity or Rate fields) -->
+        <div class="p-5">
+          <p class="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+            This product is already added to your order. Would you like to update its quantity and rate?
+          </p>
+        </div>
+
+        <!-- Footer Actions: [No, Keep Current] [Yes, Update] -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
+          <button type="button" class="btn-cancel w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 font-bold text-xs sm:text-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-400">
+            No, Keep Current
+          </button>
+          <button type="button" class="btn-confirm w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1 flex items-center justify-center gap-1.5">
+            <span>Yes, Update</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const btnConfirm = overlay.querySelector('.btn-confirm');
+    const btnCancel = overlay.querySelector('.btn-cancel');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+
+    let isClosed = false;
+    const finish = (result) => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+        resolve(result);
+      }, 200);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    btnConfirm.addEventListener('click', () => finish(true));
+    btnCancel.addEventListener('click', () => finish(false));
+    btnCloseX.addEventListener('click', () => finish(false));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(false);
+    });
+
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        if (btnConfirm) btnConfirm.focus();
+      }, 50);
+    });
+  });
+}
+
+/**
+ * Add to Order Modal
+ * Displays ONLY:
+ * - Part Number / Product information
+ * - Quantity: [editable, single field]
+ * - Rate: [editable, single field, pre-filled from product's existing rate/mrp]
+ * - [Cancel] [Add to Order]
+ *
+ * Strictly NO duplicate MRP or Rate anywhere else in the modal.
+ * No Old Rate, Old MRP, Current Rate, or New Rate fields.
+ * If the selected product already exists in current order, updates the existing entry.
+ *
+ * @param {Object} product - Product master record
+ * @returns {Promise<Object|null>}
+ */
+export async function showAddToOrderModal(product) {
+  if (!product) return null;
+
+  // STEP 1 — DUPLICATE PRODUCT CONFIRMATION
+  // Determine whether the product already exists in the order using the existing unique Product ID / Part Number.
+  // Do NOT compare product description text.
+  const existingMatches = findExistingOrderItemsByProduct(product);
+  if (existingMatches && existingMatches.length > 0) {
+    const shouldUpdate = await showProductAlreadyInOrderModal(product);
+    if (!shouldUpdate) {
+      // IF USER CLICKS "NO, KEEP CURRENT":
+      // Close the confirmation modal.
+      // Do NOT open the Add to Order quantity/rate modal.
+      // Do NOT change quantity.
+      // Do NOT change rate.
+      // Do NOT add a duplicate product.
+      // Return the user to the existing Order screen/state.
+      // No success toast should be shown.
+      return null;
+    }
+  }
+
+  // IF USER CLICKS "YES, UPDATE" OR IT IS A NEW PRODUCT:
+  // Open the EXISTING Add to Order modal exactly as it currently appears.
+  return new Promise((resolve) => {
+    const existingItem = findExistingOrderItemByProduct(product);
+
+    // Quantity: single editable field, prefilled with 1.000 or existing entry quantity
+    let initialQtyStr = '1.000';
+    if (existingItem && existingItem.quantity !== undefined && existingItem.quantity !== null) {
+      const numQ = Number(existingItem.quantity);
+      initialQtyStr = !isNaN(numQ) ? numQ.toFixed(3) : String(existingItem.quantity);
+    }
+
+    // Rate: single editable field, prefilled from selected product's existing data (or existing entry)
+    let initialRateStr = '';
+    const existingRateVal = existingItem
+      ? (existingItem.rate ?? existingItem.matchedProduct?.rate ?? product.rate ?? product.mrp ?? '')
+      : (product.rate ?? product.mrp ?? '');
+
+    if (existingRateVal !== null && existingRateVal !== undefined && existingRateVal !== '') {
+      const numR = Number(existingRateVal);
+      initialRateStr = !isNaN(numR) ? String(numR) : String(existingRateVal);
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'fixed inset-0 z-[10000] overflow-y-auto bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-200 opacity-0';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    overlay.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden transform transition-all duration-200 scale-95 opacity-0">
+        <!-- Header -->
+        <div class="p-5 border-b border-slate-100 bg-slate-50 flex items-start justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold border border-slate-200 bg-white text-slate-900 shadow-xs">
+              ➕
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-slate-900 leading-tight">Add to Order</h3>
+              <p class="text-xs text-slate-500 mt-0.5">${existingItem ? 'Product already in order — update quantity & rate' : 'Enter quantity and rate for this item'}</p>
+            </div>
+          </div>
+          <button type="button" class="modal-close-x text-slate-400 hover:text-slate-700 text-lg font-bold p-1 leading-none rounded-lg transition" aria-label="Close dialog">
+            ✕
+          </button>
+        </div>
+
+        <!-- Form Body -->
+        <form class="add-to-order-form p-5 space-y-4">
+          <!-- Part Number / Product information (No duplicate MRP or Old/New Rate fields) -->
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+            <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+              <span class="text-[11px] font-extrabold uppercase tracking-tight text-slate-500">Part Number</span>
+              <span class="font-mono font-black text-slate-900 text-xs sm:text-sm px-2 py-0.5 bg-white rounded border border-slate-200">${escapeHtml(product.partNumber || '—')}</span>
+            </div>
+            <div>
+              <span class="text-[11px] font-extrabold uppercase tracking-tight text-slate-500 block mb-0.5">Product Description</span>
+              <div class="font-bold text-slate-800 text-xs sm:text-sm leading-snug">${escapeHtml(product.productName || product.itemDetails || '—')}</div>
+            </div>
+            ${(product.rack || product.unit) ? `
+              <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-200 text-xs">
+                ${product.rack ? `<span class="text-slate-500 font-medium">Rack: <b class="text-slate-800">${escapeHtml(product.rack)}</b></span>` : '<span></span>'}
+                ${product.unit ? `<span class="text-slate-500 font-medium">Unit: <b class="text-slate-800">${escapeHtml(product.unit)}</b></span>` : '<span></span>'}
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Quantity: ONLY ONE Field -->
+          <div class="space-y-1">
+            <label for="add-to-order-qty" class="block text-xs font-bold text-slate-700">
+              Quantity <span class="text-rose-500">*</span>
+            </label>
+            <input
+              id="add-to-order-qty"
+              type="text"
+              inputmode="decimal"
+              value="${escapeHtml(initialQtyStr)}"
+              placeholder="1.000"
+              required
+              class="add-to-order-input w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 font-bold focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all"
+            />
+          </div>
+
+          <!-- Rate: ONLY ONE Field -->
+          <div class="space-y-1">
+            <label for="add-to-order-rate" class="block text-xs font-bold text-slate-700">
+              Rate <span class="text-rose-500">*</span>
+            </label>
+            <div class="relative flex rounded-xl shadow-xs">
+              <span class="inline-flex items-center px-3.5 rounded-l-xl border border-r-0 border-slate-300 bg-slate-100 text-slate-700 font-bold text-xs sm:text-sm select-none">₹</span>
+              <input
+                id="add-to-order-rate"
+                type="text"
+                inputmode="decimal"
+                value="${escapeHtml(initialRateStr)}"
+                placeholder="0.00"
+                required
+                class="add-to-order-input w-full text-xs sm:text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-r-xl text-slate-900 font-bold focus:bg-white focus:ring-2 focus:ring-slate-900 focus:outline-none transition-all"
+              />
+            </div>
+          </div>
+
+          <div id="add-to-order-error" class="hidden text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-2.5"></div>
+        </form>
+
+        <!-- Footer Actions: [Cancel] [Add to Order] -->
+        <div class="p-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row items-center justify-end gap-2.5">
+          <button type="button" class="btn-cancel w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 font-bold text-xs sm:text-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-400">
+            Cancel
+          </button>
+          <button type="button" class="btn-submit w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1 flex items-center justify-center gap-1.5">
+            <span>Add to Order</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const dialogCard = overlay.firstElementChild;
+    const form = overlay.querySelector('.add-to-order-form');
+    const qtyInput = overlay.querySelector('#add-to-order-qty');
+    const rateInput = overlay.querySelector('#add-to-order-rate');
+    const btnSubmit = overlay.querySelector('.btn-submit');
+    const btnCancel = overlay.querySelector('.btn-cancel');
+    const btnCloseX = overlay.querySelector('.modal-close-x');
+    const errorEl = overlay.querySelector('#add-to-order-error');
+
+    let isClosed = false;
+    const finish = (result) => {
+      if (isClosed) return;
+      isClosed = true;
+      document.removeEventListener('keydown', handleKeyDown);
+      overlay.classList.add('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.add('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        try { overlay.remove(); } catch (_) {}
+      }, 200);
+      resolve(result);
+    };
+
+    const handleSubmit = async () => {
+      // Validate Quantity
+      const rawQty = qtyInput.value.replace(/[^0-9.]/g, '').trim();
+      const numQty = parseFloat(rawQty);
+      if (!rawQty || isNaN(numQty) || numQty <= 0) {
+        if (errorEl) {
+          errorEl.textContent = 'Please enter a valid quantity greater than 0.';
+          errorEl.classList.remove('hidden');
+        }
+        qtyInput.focus();
+        qtyInput.select();
+        return;
+      }
+
+      // Validate Rate
+      const rawRate = rateInput.value.replace(/[^0-9.]/g, '').trim();
+      let finalRate = null;
+      if (rawRate !== '') {
+        const numRate = parseFloat(rawRate);
+        if (isNaN(numRate) || numRate < 0) {
+          if (errorEl) {
+            errorEl.textContent = 'Please enter a valid non-negative rate.';
+            errorEl.classList.remove('hidden');
+          }
+          rateInput.focus();
+          rateInput.select();
+          return;
+        }
+        finalRate = numRate;
+      } else {
+        // Fallback to product's rate/mrp if available
+        finalRate = (product.rate !== null && product.rate !== undefined && product.rate !== '')
+          ? Number(product.rate)
+          : (product.mrp ? Number(product.mrp) : null);
+      }
+
+      // Check whether SAME PRODUCT / SAME PART NUMBER already exists in current order
+      const matchingItems = findExistingOrderItemsByProduct(product);
+      let targetItem = null;
+
+      if (matchingItems.length > 0) {
+        // CASE 2 & 3: Compare existing order item's numeric Rate/MRP with the NEW Rate
+        const sameRateItem = matchingItems.find(item => {
+          const itemRate = getItemNumericRate(item);
+          if (itemRate === null && finalRate === null) return true;
+          if (itemRate !== null && finalRate !== null) {
+            return Math.abs(itemRate - finalRate) < 0.0001;
+          }
+          return false;
+        });
+
+        if (sameRateItem) {
+          // CASE 3 — SAME PRODUCT + SAME RATE:
+          // DO NOT show the "different MRP" confirmation. Update entry in-place.
+          const result = addOrUpdateOrderProduct(product, numQty, finalRate);
+          targetItem = result ? result.item : sameRateItem;
+        } else {
+          // CASE 2 — SAME PRODUCT + DIFFERENT RATE:
+          // Show confirmation modal BEFORE adding it.
+          const existingRate = getItemNumericRate(matchingItems[matchingItems.length - 1]);
+
+          const confirmed = await showDifferentRateConfirmModal({
+            existingRate,
+            newRate: finalRate,
+            partNumber: product.partNumber || ''
+          });
+
+          if (!confirmed) {
+            // IF USER CLICKS "CANCEL":
+            // Do NOT add the product.
+            // Close confirmation modal and return to Add to Order flow without changing existing order.
+            return;
+          }
+
+          // IF USER CLICKS "CONTINUE":
+          // Allow product to be added with the new rate. Keep existing entry and add new entry with different rate.
+          targetItem = addNewOrderProduct(product, numQty, finalRate);
+        }
+      } else {
+        // CASE 1 — Product is NOT already in the order:
+        // Continue with the existing behavior normally.
+        targetItem = addNewOrderProduct(product, numQty, finalRate);
+      }
+
+      renderOrderTable();
+
+      const savedItem = targetItem;
+      const prodLabel = product.productName || product.itemDetails || product.partNumber || 'Product';
+      const savedQty = savedItem ? savedItem.quantity : numQty;
+      const savedRate = savedItem ? (savedItem.rate ?? savedItem.matchedProduct?.rate ?? finalRate) : finalRate;
+
+      const formattedQty = (Number.isInteger(savedQty) ? savedQty : Number(savedQty.toFixed(3)));
+      const formattedRate = (savedRate !== null && savedRate !== undefined && savedRate !== '')
+        ? `₹${Number(savedRate).toLocaleString('en-IN')}`
+        : '—';
+
+      showToast({
+        title: `Added "${prodLabel}" to order`,
+        qty: formattedQty,
+        rate: formattedRate
+      }, 'success');
+
+      finish(savedItem);
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleSubmit();
+    });
+    btnSubmit.addEventListener('click', handleSubmit);
+    btnCancel.addEventListener('click', () => finish(null));
+    btnCloseX.addEventListener('click', () => finish(null));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) finish(null);
+    });
+
+    requestAnimationFrame(() => {
+      overlay.classList.remove('opacity-0');
+      if (dialogCard) {
+        dialogCard.classList.remove('scale-95', 'opacity-0');
+      }
+      setTimeout(() => {
+        qtyInput.focus();
+        qtyInput.select();
+      }, 50);
+    });
+  });
+}
+
+/**
  * Render the Order Review Table
  */
 export function renderOrderTable() {
@@ -752,7 +1373,12 @@ export function renderOrderTable() {
           ${item.matchedProduct && item.matchedProduct.unit ? escapeHtml(item.matchedProduct.unit) : '<span class="text-slate-400 text-xs">—</span>'}
         </td>
         <td class="px-3 py-3 text-center text-xs font-bold text-slate-900">
-          ${item.matchedProduct && item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? `₹${Number(item.matchedProduct.rate).toLocaleString('en-IN')}` : '<span class="text-slate-400 text-xs">—</span>'}
+          ${(() => {
+            const r = (item.rate !== null && item.rate !== undefined && item.rate !== '')
+              ? item.rate
+              : (item.matchedProduct && item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? item.matchedProduct.rate : null);
+            return (r !== null && r !== undefined && r !== '') ? `₹${Number(r).toLocaleString('en-IN')}` : '<span class="text-slate-400 text-xs">—</span>';
+          })()}
         </td>
         <td class="px-3 py-3 text-center">
           ${item.matchedProduct && item.matchedProduct.rack ? `
@@ -861,7 +1487,12 @@ export function renderOrderTable() {
           <!-- MRP -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">MRP</span>
-            <span class="font-extrabold text-slate-900">${item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? `₹${Number(item.matchedProduct.rate).toLocaleString('en-IN')}` : '—'}</span>
+            <span class="font-extrabold text-slate-900">${(() => {
+              const r = (item.rate !== null && item.rate !== undefined && item.rate !== '')
+                ? item.rate
+                : (item.matchedProduct && item.matchedProduct.rate !== null && item.matchedProduct.rate !== undefined && item.matchedProduct.rate !== '' ? item.matchedProduct.rate : null);
+              return (r !== null && r !== undefined && r !== '') ? `₹${Number(r).toLocaleString('en-IN')}` : '—';
+            })()}</span>
           </div>
 
           <!-- Rack Location -->
@@ -940,7 +1571,7 @@ export function closeManualSelectModal() {
 /**
  * Perform search inside the Manual Select Modal
  */
-export async function performManualModalSearch(query) {
+export async function performManualModalSearch(query, isExactScanner = false) {
   const resultsContainer = document.getElementById('manual-search-results');
   const countBadge = document.getElementById('manual-search-count');
   if (!resultsContainer) return;
@@ -952,18 +1583,24 @@ export async function performManualModalSearch(query) {
     </div>
   `;
 
-  const searchResult = await searchLocalProducts(query, 50);
+  const searchResult = isExactScanner
+    ? await searchExactPartNumber(query)
+    : await searchLocalProducts(query, 50);
 
   if (countBadge) {
-    countBadge.textContent = `${searchResult.total} matches found`;
+    if (isExactScanner) {
+      countBadge.textContent = `${searchResult.total} exact match${searchResult.total === 1 ? '' : 'es'}`;
+    } else {
+      countBadge.textContent = `${searchResult.total} matches found`;
+    }
   }
 
   if (searchResult.items.length === 0) {
     resultsContainer.innerHTML = `
       <div class="py-12 text-center text-slate-500">
         <div class="text-3xl mb-2">📦</div>
-        <div class="font-semibold text-slate-700">No matching products found in local master</div>
-        <div class="text-xs text-slate-400 mt-1">Try searching with partial words, part number, or rack number</div>
+        <div class="font-bold text-slate-800 text-base">${isExactScanner ? 'No exact part number found.' : 'No matching products found in local master'}</div>
+        <div class="text-xs text-slate-400 mt-1">${isExactScanner ? `No product with Part Number "${escapeHtml(query)}" in master` : 'Try searching with partial words, part number, or rack number'}</div>
       </div>
     `;
     return;
@@ -1183,12 +1820,77 @@ export function initUIEventListeners() {
     });
   }
 
-  // Manual Select Modal Search Input (Debounced)
+  // Manual Select Modal Search Input (Supports typing & handheld QR scanner)
   const manualSearchInput = document.getElementById('manual-search-input');
   if (manualSearchInput) {
-    const debouncedSearch = debounce((q) => performManualModalSearch(q), 150);
+    let lastKeyTime = 0;
+    let rapidKeyCount = 0;
+    let isScannerTyping = false;
+    let scannerTimer = null;
+    let manualDebounceTimer = null;
+
+    async function processModalScannerInput(rawVal) {
+      clearTimeout(scannerTimer);
+      clearTimeout(manualDebounceTimer);
+      isScannerTyping = false;
+      rapidKeyCount = 0;
+
+      const extraction = await extractPartNumberFromScannedText(rawVal);
+      const extractedPartNo = (extraction.partNumber || rawVal).trim();
+      manualSearchInput.value = extractedPartNo;
+      performManualModalSearch(extractedPartNo, true);
+    }
+
+    manualSearchInput.addEventListener('keydown', (e) => {
+      const now = Date.now();
+      const delta = now - lastKeyTime;
+      lastKeyTime = now;
+
+      if (delta < 50) {
+        rapidKeyCount++;
+        if (rapidKeyCount >= 3) {
+          isScannerTyping = true;
+        }
+      } else {
+        rapidKeyCount = 0;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(scannerTimer);
+        clearTimeout(manualDebounceTimer);
+
+        const val = manualSearchInput.value;
+        if (isQRPayload(val) || isScannerTyping) {
+          processModalScannerInput(val);
+        } else {
+          performManualModalSearch(val, false);
+        }
+      }
+    });
+
     manualSearchInput.addEventListener('input', (e) => {
-      debouncedSearch(e.target.value);
+      const val = e.target.value;
+      clearTimeout(scannerTimer);
+      clearTimeout(manualDebounceTimer);
+
+      if (isQRPayload(val)) {
+        scannerTimer = setTimeout(() => {
+          processModalScannerInput(manualSearchInput.value);
+        }, 60);
+        return;
+      }
+
+      if (isScannerTyping) {
+        scannerTimer = setTimeout(() => {
+          processModalScannerInput(manualSearchInput.value);
+        }, 70);
+        return;
+      }
+
+      manualDebounceTimer = setTimeout(() => {
+        performManualModalSearch(val, false);
+      }, 150);
     });
   }
 
