@@ -13,16 +13,59 @@ let lastModelDiscoveryTime = 0;
 const MODEL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 /**
+ * Preferred production Flash models for Image-to-Order in deterministic priority order
+ */
+const PREFERRED_PRODUCTION_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash'
+];
+
+/**
  * Fallback static list of candidate models in order of capability & speed
  * (Used ONLY if dynamic ListModels discovery is unreachable)
  */
-const STATIC_CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
-  'gemini-3.6-flash',
-  'gemini-2.5-flash'
-];
+const STATIC_CANDIDATE_MODELS = [...PREFERRED_PRODUCTION_MODELS];
+
+/**
+ * Models that are NOT designed for standard Image Input -> Text/JSON extraction
+ * (video gen, image gen, audio, tts, omni diffusion, embeddings)
+ */
+const EXCLUDED_MODEL_PATTERN = /omni|video|veo|image|imagen|banana|tts|speech|transcribe|audio|live|realtime|embed|embedding/i;
+
+/**
+ * Validate if a model returned by ListModels is eligible for image-to-order JSON extraction
+ */
+function isEligibleImageModel(m) {
+  const modelId = (m.name || '').replace(/^models\//, '').trim();
+  const methods = Array.isArray(m.supportedGenerationMethods) ? m.supportedGenerationMethods : [];
+  const hasGenerateContent = methods.includes('generateContent');
+
+  // Input modalities check if available in API response
+  const modalities = m.inputModalities || m.supportedInputModalities || null;
+  const supportsImage = Array.isArray(modalities)
+    ? modalities.map(x => String(x).toLowerCase()).includes('image')
+    : true; // Default true if field not present, unless excluded by name pattern
+
+  // Check for explicit zero quota if reported in model metadata
+  const hasZeroLimit = m.quotaLimit === 0 || m.limit === 0 || (m.quota && m.quota.limit === 0);
+
+  // Blacklist check
+  const isExcluded = EXCLUDED_MODEL_PATTERN.test(modelId);
+
+  // Diagnostic logging (Requirement 8)
+  console.log(`[AI Model Discovery] Model: "${modelId}" | Supported Methods: [${methods.join(', ')}] | Modalities: ${modalities ? JSON.stringify(modalities) : 'N/A'} | Supports generateContent: ${hasGenerateContent} | Supports Image: ${supportsImage} | Excluded: ${isExcluded} | ZeroLimit: ${hasZeroLimit}`);
+
+  if (!hasGenerateContent) return false;
+  if (!supportsImage) return false;
+  if (isExcluded) return false;
+  if (hasZeroLimit) return false;
+
+  return true;
+}
 
 /**
  * Discover available models supporting generateContent for this API key via ListModels
@@ -47,22 +90,29 @@ async function discoverAvailableModels(apiKey) {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.models)) {
-          // Filter for models supporting generateContent
-          const contentModels = data.models
-            .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
-            .map(m => (m.name || '').replace(/^models\//, ''))
+          // Strictly filter for eligible image models (excludes omni, video, tts, zero limit, etc.)
+          const eligibleModels = data.models
+            .filter(isEligibleImageModel)
+            .map(m => (m.name || '').replace(/^models\//, '').trim())
             .filter(Boolean);
 
-          if (contentModels.length > 0) {
-            // Sort: Flash models first, then Pro, with descending version priority
-            contentModels.sort((a, b) => {
-              const aFlash = a.toLowerCase().includes('flash') ? 1 : 0;
-              const bFlash = b.toLowerCase().includes('flash') ? 1 : 0;
-              if (aFlash !== bFlash) return bFlash - aFlash;
+          if (eligibleModels.length > 0) {
+            // Deterministic stable model priority (Requirements 4 & 9)
+            // Strictly rank according to PREFERRED_PRODUCTION_MODELS
+            eligibleModels.sort((a, b) => {
+              const idxA = PREFERRED_PRODUCTION_MODELS.indexOf(a);
+              const idxB = PREFERRED_PRODUCTION_MODELS.indexOf(b);
+
+              if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+              if (idxA !== -1) return -1;
+              if (idxB !== -1) return 1;
+
               return b.localeCompare(a, undefined, { numeric: true });
             });
 
-            cachedModelDiscovery = { models: contentModels, apiVersion: ver };
+            console.log(`[AI Model Discovery] Final ranked candidate models for execution:`, eligibleModels);
+
+            cachedModelDiscovery = { models: eligibleModels, apiVersion: ver };
             lastModelDiscoveryTime = now;
             return cachedModelDiscovery;
           }
@@ -168,8 +218,14 @@ Return ONLY a valid JSON array.`;
       candidateModels = [...STATIC_CANDIDATE_MODELS];
     }
 
-    // If we have a cached working model, prioritize it first
-    if (cachedWorkingModel) {
+    // Strict safety filter: ensure no excluded models ever enter execution
+    candidateModels = candidateModels.filter(m => !EXCLUDED_MODEL_PATTERN.test(m));
+    if (candidateModels.length === 0) {
+      candidateModels = [...STATIC_CANDIDATE_MODELS];
+    }
+
+    // If we have a cached working model, prioritize it first (strictly if not excluded)
+    if (cachedWorkingModel && !EXCLUDED_MODEL_PATTERN.test(cachedWorkingModel)) {
       candidateModels = [
         cachedWorkingModel,
         ...candidateModels.filter(m => m !== cachedWorkingModel)
@@ -277,6 +333,12 @@ Return ONLY a valid JSON array.`;
 
         // Rate limit / Quota exceeded
         if (resp1.status === 429) {
+          // If limit: 0 for this specific model, this model has no quota on this tier/key; continue to next candidate model
+          if (errMsg1.toLowerCase().includes('limit: 0') || errMsg1.toLowerCase().includes('limit:0')) {
+            console.warn(`[AI Extraction] Model "${model}" returned limit: 0 on this key. Trying next candidate.`);
+            lastError = `${model}: Quota limit 0`;
+            continue;
+          }
           return {
             statusCode: 429,
             headers,
