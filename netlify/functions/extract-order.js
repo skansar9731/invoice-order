@@ -1,8 +1,87 @@
 /**
  * Netlify Serverless Function: AI Handwritten Order Extraction
- * Powered by Google Gemini 3.6 Flash Vision API
- * Transcribes handwritten customer order slips into structured JSON: [{ customerText, quantity }]
+ * Powered by Google Gemini Vision API
+ * Dynamically queries available models for the configured API key via ListModels
+ * Transcribes customer order slips into structured JSON: [{ partNumber, itemDescription, customerText, quantity }]
  */
+
+// In-memory cache across warm serverless invocations
+let cachedWorkingModel = null;
+let cachedApiVersion = 'v1beta';
+let cachedModelDiscovery = null;
+let lastModelDiscoveryTime = 0;
+const MODEL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Fallback static list of candidate models in order of capability & speed
+ */
+const STATIC_CANDIDATE_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-3.0-flash',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-exp',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+  'gemini-3.1-pro',
+  'gemini-1.5-pro'
+];
+
+/**
+ * Discover available models supporting generateContent for this API key via ListModels
+ */
+async function discoverAvailableModels(apiKey) {
+  const now = Date.now();
+  if (cachedModelDiscovery && (now - lastModelDiscoveryTime) < MODEL_CACHE_TTL) {
+    return cachedModelDiscovery;
+  }
+
+  const versions = ['v1beta', 'v1'];
+  for (const ver of versions) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/${ver}/models?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'x-goog-api-key': apiKey
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.models)) {
+          // Filter for models supporting generateContent
+          const contentModels = data.models
+            .filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent'))
+            .map(m => (m.name || '').replace(/^models\//, ''))
+            .filter(Boolean);
+
+          if (contentModels.length > 0) {
+            // Sort: Flash models first, then Pro, with descending version priority
+            contentModels.sort((a, b) => {
+              const aFlash = a.toLowerCase().includes('flash') ? 1 : 0;
+              const bFlash = b.toLowerCase().includes('flash') ? 1 : 0;
+              if (aFlash !== bFlash) return bFlash - aFlash;
+              return b.localeCompare(a, undefined, { numeric: true });
+            });
+
+            cachedModelDiscovery = { models: contentModels, apiVersion: ver };
+            lastModelDiscoveryTime = now;
+            return cachedModelDiscovery;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`Model discovery failed on ${ver}:`, err.message);
+    }
+  }
+
+  return null;
+}
 
 exports.handler = async (event, context) => {
   // CORS Headers
@@ -25,7 +104,8 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const rawKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey = rawKey ? rawKey.trim().replace(/^['"]|['"]$/g, '').trim() : '';
 
   if (!apiKey) {
     return {
@@ -85,12 +165,23 @@ Read ALL visible order lines from top to bottom.
 Ignore printed logos, signatures, and decorative borders.
 Return ONLY a valid JSON array.`;
 
-    const candidateModels = [
-      'gemini-3.6-flash',
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-flash'
-    ];
+    // Discover live models for this API key
+    const discovery = await discoverAvailableModels(apiKey);
+    let candidateModels = [];
+
+    if (discovery && discovery.models.length > 0) {
+      candidateModels = [...discovery.models];
+    } else {
+      candidateModels = [...STATIC_CANDIDATE_MODELS];
+    }
+
+    // If we have a cached working model, prioritize it first
+    if (cachedWorkingModel) {
+      candidateModels = [
+        cachedWorkingModel,
+        ...candidateModels.filter(m => m !== cachedWorkingModel)
+      ];
+    }
 
     const geminiBodyWithSchema = {
       contents: [
@@ -143,16 +234,32 @@ Return ONLY a valid JSON array.`;
       }
     };
 
+    const geminiBodyRaw = {
+      contents: [
+        {
+          parts: [
+            { text: `${systemPrompt}\n\nIMPORTANT: Return ONLY a raw JSON array of objects: [{"customerText": "...", "itemDescription": "...", "partNumber": "...", "quantity": 1}]. No markdown code blocks, no explanations.` },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: data
+              }
+            }
+          ]
+        }
+      ]
+    };
+
     let geminiData = null;
     let lastError = 'No response from AI model';
+    const apiVer = discovery?.apiVersion || cachedApiVersion || 'v1beta';
 
-    // Model and schema fallback loop
     for (const model of candidateModels) {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const geminiUrl = `https://generativelanguage.googleapis.com/${apiVer}/models/${model}:generateContent`;
 
-      // Try 1: Structured schema
       try {
-        const response = await fetch(geminiUrl, {
+        // Attempt 1: Structured schema
+        const resp1 = await fetch(geminiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -161,36 +268,81 @@ Return ONLY a valid JSON array.`;
           body: JSON.stringify(geminiBodyWithSchema)
         });
 
-        if (response.ok) {
-          geminiData = await response.json();
+        if (resp1.ok) {
+          geminiData = await resp1.json();
+          cachedWorkingModel = model;
+          cachedApiVersion = apiVer;
           break;
-        } else {
-          const errText = await response.text();
-          let msg = `API error (${response.status})`;
-          try {
-            const errObj = JSON.parse(errText);
-            msg = errObj.error?.message || msg;
-          } catch (e) {}
-          lastError = `${model}: ${msg}`;
-
-          // If 400 Bad Request, try plain JSON mode on the same model
-          if (response.status === 400) {
-            try {
-              const plainResp = await fetch(geminiUrl, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'x-goog-api-key': apiKey
-                },
-                body: JSON.stringify(geminiBodyPlainJson)
-              });
-              if (plainResp.ok) {
-                geminiData = await plainResp.json();
-                break;
-              }
-            } catch (pErr) {}
-          }
         }
+
+        const errText1 = await resp1.text();
+        let errMsg1 = `Status ${resp1.status}`;
+        try {
+          const errObj = JSON.parse(errText1);
+          errMsg1 = errObj.error?.message || errMsg1;
+        } catch (e) {}
+
+        // Rate limit / Quota exceeded
+        if (resp1.status === 429) {
+          return {
+            statusCode: 429,
+            headers,
+            body: JSON.stringify({
+              error: `Google Gemini API rate limit or quota exceeded: ${errMsg1}. Please check your Google AI Studio plan or try again shortly.`
+            })
+          };
+        }
+
+        // Invalid key / Forbidden
+        if (resp1.status === 401 || resp1.status === 403) {
+          return {
+            statusCode: resp1.status,
+            headers,
+            body: JSON.stringify({
+              error: `Google Gemini API authorization failed (${errMsg1}). Please verify GEMINI_API_KEY in Netlify settings.`
+            })
+          };
+        }
+
+        // Attempt 2: If 400 Bad Request (schema or formatting issue), try plain JSON mode
+        if (resp1.status === 400) {
+          try {
+            const resp2 = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey
+              },
+              body: JSON.stringify(geminiBodyPlainJson)
+            });
+
+            if (resp2.ok) {
+              geminiData = await resp2.json();
+              cachedWorkingModel = model;
+              cachedApiVersion = apiVer;
+              break;
+            }
+
+            // Attempt 3: Try raw mode without generationConfig
+            const resp3 = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey
+              },
+              body: JSON.stringify(geminiBodyRaw)
+            });
+
+            if (resp3.ok) {
+              geminiData = await resp3.json();
+              cachedWorkingModel = model;
+              cachedApiVersion = apiVer;
+              break;
+            }
+          } catch (modeErr) {}
+        }
+
+        lastError = `${model}: ${errMsg1}`;
       } catch (fetchErr) {
         lastError = `${model}: ${fetchErr.message}`;
       }
@@ -200,11 +352,27 @@ Return ONLY a valid JSON array.`;
       return {
         statusCode: 502,
         headers,
-        body: JSON.stringify({ error: lastError })
+        body: JSON.stringify({
+          error: `Gemini API call failed: ${lastError}`,
+          hint: 'Please ensure your Gemini API key has access to vision models in Google AI Studio.'
+        })
       };
     }
 
-    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const candidate = geminiData.candidates?.[0];
+    const rawText = candidate?.content?.parts?.[0]?.text || '';
+
+    if (!rawText) {
+      const finishReason = candidate?.finishReason;
+      const blockReason = geminiData.promptFeedback?.blockReason;
+      return {
+        statusCode: 502,
+        headers,
+        body: JSON.stringify({
+          error: `AI returned empty response (Finish reason: ${finishReason || blockReason || 'Unknown'}). Please check image clarity.`
+        })
+      };
+    }
 
     // Parse JSON
     let rawItems = [];
@@ -212,15 +380,13 @@ Return ONLY a valid JSON array.`;
       const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
       rawItems = JSON.parse(cleanJson);
     } catch (parseErr) {
-      console.error('Failed to parse Gemini output:', rawText);
-      return {
-        statusCode: 502,
-        headers,
-        body: JSON.stringify({
-          error: 'Failed to parse structured JSON from Gemini output.',
-          raw: rawText
-        })
-      };
+      // Substring array fallback
+      const arrayMatch = rawText.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        try {
+          rawItems = JSON.parse(arrayMatch[0]);
+        } catch (e2) {}
+      }
     }
 
     if (!Array.isArray(rawItems)) {
@@ -238,7 +404,7 @@ Return ONLY a valid JSON array.`;
     // Validate and clean extracted items
     const parsedItems = [];
     for (const row of rawItems) {
-      if (!row) continue;
+      if (!row || typeof row !== 'object') continue;
       const partNumber = String(row.partNumber || row.partNo || row.part_code || row.code || '').trim();
       const itemDescription = String(row.itemDescription || row.description || row.itemName || row.partName || row.name || '').trim();
       const customerText = String(row.customerText || '').trim();
