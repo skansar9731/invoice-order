@@ -28,6 +28,7 @@ import { generateBusyOrderPDF, generateBusyOrderPDFBlob } from './pdfGenerator.j
 import { generateBusyOrderExcel, generateBusyOrderExcelBlob } from './excelGenerator.js';
 import { uploadOrUpdateDriveFile, openDriveFile } from './googleDriveService.js';
 import { getShopStats } from './db.js';
+import { updateSaveSaleInvoiceButtonState } from './saleInvoiceService.js';
 
 let activeManualSelectItemId = null;
 
@@ -1089,8 +1090,7 @@ export async function showAddToOrderModal(product) {
       resolve(result);
     };
 
-    const handleSubmit = async () => {
-      // Validate Quantity
+    const validateQty = () => {
       const rawQty = qtyInput.value.replace(/[^0-9.]/g, '').trim();
       const numQty = parseFloat(rawQty);
       if (!rawQty || isNaN(numQty) || numQty <= 0) {
@@ -1100,6 +1100,21 @@ export async function showAddToOrderModal(product) {
         }
         qtyInput.focus();
         qtyInput.select();
+        return null;
+      }
+      if (errorEl) {
+        errorEl.classList.add('hidden');
+      }
+      return numQty;
+    };
+
+    let isSubmitting = false;
+    const handleSubmit = async () => {
+      if (isSubmitting || isClosed) return;
+
+      // Validate Quantity
+      const numQty = validateQty();
+      if (numQty === null) {
         return;
       }
 
@@ -1124,6 +1139,12 @@ export async function showAddToOrderModal(product) {
           ? Number(product.rate)
           : (product.mrp ? Number(product.mrp) : null);
       }
+
+      if (errorEl) {
+        errorEl.classList.add('hidden');
+      }
+
+      isSubmitting = true;
 
       // Check whether SAME PRODUCT / SAME PART NUMBER already exists in current order
       const matchingItems = findExistingOrderItemsByProduct(product);
@@ -1160,6 +1181,7 @@ export async function showAddToOrderModal(product) {
             // IF USER CLICKS "CANCEL":
             // Do NOT add the product.
             // Close confirmation modal and return to Add to Order flow without changing existing order.
+            isSubmitting = false;
             return;
           }
 
@@ -1198,16 +1220,31 @@ export async function showAddToOrderModal(product) {
       if (e.key === 'Escape') {
         e.preventDefault();
         finish(null);
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        handleSubmit();
       }
     };
+
+    qtyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (validateQty() !== null) {
+          rateInput.focus();
+          rateInput.select();
+        }
+      }
+    });
+
+    rateInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        handleSubmit();
+      }
+    });
 
     document.addEventListener('keydown', handleKeyDown);
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      handleSubmit();
     });
     btnSubmit.addEventListener('click', handleSubmit);
     btnCancel.addEventListener('click', () => finish(null));
@@ -1243,8 +1280,9 @@ export function renderOrderTable() {
   const order = getCurrentOrder();
   const summary = getOrderSummary();
 
-  // Update PDF / Excel export button states
+  // Update PDF / Excel / Sale Invoice export button states
   updateExportButtonState();
+  updateSaveSaleInvoiceButtonState();
 
   // Update summary bar badges
   if (orderSummaryBar) {
@@ -1390,9 +1428,12 @@ export function renderOrderTable() {
           ` : `<span class="text-slate-400 text-xs">—</span>`}
         </td>
         <td class="px-3 py-3 text-center">
-          ${item.matchedProduct && (item.matchedProduct.parentGroup || item.matchedProduct.group) ? `
-            <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(item.matchedProduct.parentGroup || item.matchedProduct.group)}</span>
-          ` : `<span class="text-slate-400 text-xs">—</span>`}
+          ${(() => {
+            const grp = (item.matchedProduct?.parentGroup || item.matchedProduct?.group || item.parentGroup || item.group || '').trim();
+            return (grp && grp !== '-' && grp !== '—')
+              ? `<span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">${escapeHtml(grp)}</span>`
+              : `<span class="text-slate-400 text-xs">—</span>`;
+          })()}
         </td>
         <td class="px-3 py-3 text-center whitespace-nowrap">
           ${matchBadgeHtml}
@@ -1521,7 +1562,7 @@ export function renderOrderTable() {
           <!-- Group -->
           <div class="flex items-center justify-between border-b border-slate-200 pb-2 text-xs">
             <span class="font-extrabold text-slate-900 uppercase tracking-tight">Group</span>
-            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml(item.matchedProduct.parentGroup || item.matchedProduct.group || '—')}</span>
+            <span class="font-bold text-slate-800 px-2 py-0.5 bg-slate-100 rounded border border-slate-200">${escapeHtml((item.matchedProduct?.parentGroup || item.matchedProduct?.group || item.parentGroup || item.group || '').trim() || '—')}</span>
           </div>
 
           <!-- Actions -->

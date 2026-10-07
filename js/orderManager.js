@@ -8,6 +8,10 @@ import { matchCustomerItem, matchOrderItem } from './matchingEngine.js';
 let currentOrder = {
   id: generateOrderId(),
   customerName: '',
+  gstNumber: '',
+  taxType: '',
+  mobileNumber: '',
+  address: '',
   createdBy: '',
   checkedBy: '',
   orderNo: generateOrderNumber(),
@@ -40,6 +44,10 @@ export function loadOrderFromStorage() {
           currentOrder = {
             id: parsed.id || generateOrderId(),
             customerName: String(parsed.customerName || '').trim(),
+            gstNumber: String(parsed.gstNumber || '').trim(),
+            taxType: parsed.taxType || '',
+            mobileNumber: String(parsed.mobileNumber || '').trim(),
+            address: String(parsed.address || '').trim(),
             createdBy: String(parsed.createdBy || '').trim(),
             checkedBy: String(parsed.checkedBy || '').trim(),
             orderNo: parsed.orderNo || generateOrderNumber(),
@@ -97,6 +105,10 @@ export function loadOrder(orderData) {
   currentOrder = {
     id: orderData.id || generateOrderId(),
     customerName: String(orderData.customerName || '').trim(),
+    gstNumber: String(orderData.gstNumber || '').trim(),
+    taxType: orderData.taxType || '',
+    mobileNumber: String(orderData.mobileNumber || '').trim(),
+    address: String(orderData.address || '').trim(),
     createdBy: String(orderData.createdBy || '').trim(),
     checkedBy: String(orderData.checkedBy || '').trim(),
     orderNo: orderData.orderNo || generateOrderNumber(),
@@ -110,18 +122,30 @@ export function loadOrder(orderData) {
   return currentOrder;
 }
 
-export function resetOrder(customerName = '', createdBy = '', checkedBy = '') {
+export function resetOrder(customerName = '', createdBy = '', checkedBy = '', gstNumber = '', address = '', taxType = '', mobileNumber = '') {
   let cust = customerName;
   let cr = createdBy;
   let ch = checkedBy;
+  let gst = gstNumber;
+  let addr = address;
+  let tax = taxType;
+  let mob = mobileNumber;
   if (typeof customerName === 'object' && customerName !== null) {
     cust = customerName.customerName || '';
     cr = customerName.createdBy || '';
     ch = customerName.checkedBy || '';
+    gst = customerName.gstNumber || '';
+    addr = customerName.address || '';
+    tax = customerName.taxType || '';
+    mob = customerName.mobileNumber || '';
   }
   currentOrder = {
     id: generateOrderId(),
     customerName: String(cust || '').trim(),
+    gstNumber: String(gst || '').trim(),
+    taxType: tax || '',
+    mobileNumber: String(mob || '').trim(),
+    address: String(addr || '').trim(),
     createdBy: String(cr || '').trim(),
     checkedBy: String(ch || '').trim(),
     orderNo: generateOrderNumber(),
@@ -267,12 +291,15 @@ export function addNewOrderProduct(product, quantity = 1, rate = null) {
     : ((product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null));
 
   const customerText = product.itemDetails || product.productName || product.partNumber || 'Manual Item';
+  const groupVal = product ? (product.parentGroup || product.group || '').trim() : '';
   const newItem = {
     id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
     sNo: currentOrder.items.length + 1,
     customerText: customerText.trim(),
     quantity: finalQty,
     rate: finalRate,
+    group: groupVal,
+    parentGroup: groupVal,
     matchedProduct: {
       id: product.id,
       partNumber: product.partNumber,
@@ -280,6 +307,8 @@ export function addNewOrderProduct(product, quantity = 1, rate = null) {
       itemDetails: product.itemDetails || '',
       rack: product.rack || '',
       unit: product.unit || '',
+      group: groupVal,
+      parentGroup: groupVal,
       stockQty: (product.stockQty !== null && product.stockQty !== undefined) ? Number(product.stockQty) : null,
       rate: finalRate
     },
@@ -331,6 +360,9 @@ export function addOrUpdateOrderProduct(product, quantity = 1, rate = null) {
     sameRateItem.quantity = finalQty;
     sameRateItem.rate = finalRate;
 
+    const groupVal = product ? (product.parentGroup || product.group || '').trim() : '';
+    sameRateItem.group = groupVal;
+    sameRateItem.parentGroup = groupVal;
     if (!sameRateItem.matchedProduct) {
       sameRateItem.matchedProduct = { ...product };
     }
@@ -339,6 +371,10 @@ export function addOrUpdateOrderProduct(product, quantity = 1, rate = null) {
     if (product.productName) sameRateItem.matchedProduct.productName = product.productName;
     if (product.rack) sameRateItem.matchedProduct.rack = product.rack;
     if (product.unit) sameRateItem.matchedProduct.unit = product.unit;
+    if (groupVal) {
+      sameRateItem.matchedProduct.group = groupVal;
+      sameRateItem.matchedProduct.parentGroup = groupVal;
+    }
     if (product.stockQty !== null && product.stockQty !== undefined) sameRateItem.matchedProduct.stockQty = Number(product.stockQty);
 
     sameRateItem.isManual = true;
@@ -368,6 +404,9 @@ export function updateItemQuantity(itemId, quantity) {
 export function updateItemProduct(itemId, product, isManual = true) {
   const item = currentOrder.items.find(i => i.id === itemId);
   if (item) {
+    const groupVal = product ? (product.parentGroup || product.group || '').trim() : '';
+    item.group = groupVal;
+    item.parentGroup = groupVal;
     item.matchedProduct = product ? {
       id: product.id,
       partNumber: product.partNumber,
@@ -375,6 +414,8 @@ export function updateItemProduct(itemId, product, isManual = true) {
       itemDetails: product.itemDetails || '',
       rack: product.rack || '',
       unit: product.unit || '',
+      group: groupVal,
+      parentGroup: groupVal,
       stockQty: (product.stockQty !== null && product.stockQty !== undefined) ? Number(product.stockQty) : null,
       rate: (product.rate !== null && product.rate !== undefined && product.rate !== '') ? Number(product.rate) : (product.mrp ? Number(product.mrp) : null)
     } : null;

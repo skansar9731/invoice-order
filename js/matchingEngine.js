@@ -428,6 +428,8 @@ export async function matchAllOrderItems(items) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const matchResult = await matchOrderItem(item);
+    const matched = matchResult.matchedProduct;
+    const groupVal = matched ? (matched.parentGroup || matched.group || '').trim() : '';
 
     results.push({
       id: 'item-' + Date.now() + '-' + i + '-' + Math.random().toString(36).substr(2, 4),
@@ -437,7 +439,13 @@ export async function matchAllOrderItems(items) {
       customerText: item.customerText || matchResult.customerText || '',
       quantity: Number(item.quantity) || 1,
       rate: (item.rate !== undefined && item.rate !== null && item.rate !== '') ? Number(item.rate) : null,
-      matchedProduct: matchResult.matchedProduct,
+      group: groupVal,
+      parentGroup: groupVal,
+      matchedProduct: matched ? {
+        ...matched,
+        group: groupVal,
+        parentGroup: groupVal
+      } : null,
       matchMethod: matchResult.matchMethod,
       matchStatus: matchResult.matchStatus,
       confidence: matchResult.confidence,

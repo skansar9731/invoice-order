@@ -42,6 +42,7 @@ import { initializeGoogleDrive } from './googleDriveService.js';
 import { loadRackMap } from './rackMap.js';
 import { loadCounterMap } from './counterMap.js';
 import { initMapManagerEvents } from './mapManager.js';
+import { initSaleInvoiceService, updateSaveSaleInvoiceButtonState } from './saleInvoiceService.js';
 
 let pendingImportData = null;
 
@@ -59,6 +60,7 @@ if (typeof document !== 'undefined') {
       initAppNavigation();
       initMapManagerEvents();
       initOrderEntryEvents();
+      initSaleInvoiceService();
       initStockImportEvents();
       initQuickSearchEvents();
       initSettingsEvents();
@@ -68,10 +70,18 @@ if (typeof document !== 'undefined') {
       const savedOrder = loadOrderFromStorage();
       if (savedOrder) {
         const customerNameInput = document.getElementById('order-customer-name');
+        const gstNumberInput = document.getElementById('order-gst-number');
+        const taxTypeInput = document.getElementById('order-tax-type');
+        const mobileNumberInput = document.getElementById('order-mobile-number');
+        const addressInput = document.getElementById('order-address');
         const createdByInput = document.getElementById('order-created-by');
         const checkedByInput = document.getElementById('order-checked-by');
         const orderNumberInput = document.getElementById('order-number-display');
         if (customerNameInput && savedOrder.customerName) customerNameInput.value = savedOrder.customerName;
+        if (gstNumberInput && savedOrder.gstNumber) gstNumberInput.value = savedOrder.gstNumber;
+        if (taxTypeInput && savedOrder.taxType) taxTypeInput.value = savedOrder.taxType;
+        if (mobileNumberInput && savedOrder.mobileNumber) mobileNumberInput.value = savedOrder.mobileNumber;
+        if (addressInput && savedOrder.address) addressInput.value = savedOrder.address;
         if (createdByInput && savedOrder.createdBy) createdByInput.value = savedOrder.createdBy;
         if (checkedByInput && savedOrder.checkedBy) checkedByInput.value = savedOrder.checkedBy;
         if (orderNumberInput && savedOrder.orderNo) orderNumberInput.textContent = savedOrder.orderNo;
@@ -85,6 +95,7 @@ if (typeof document !== 'undefined') {
       // 4. Initial order table render and export buttons state
       renderOrderTable();
       updateExportButtonState();
+      updateSaveSaleInvoiceButtonState();
 
       // 5. Pre-initialize Google Drive service in background
       initializeGoogleDrive().catch(e => console.warn('Google Drive preload warning:', e));
@@ -264,14 +275,74 @@ function initOrderEntryEvents() {
   const btnClearAllImages = document.getElementById('btn-clear-all-images');
   const btnNewOrder = document.getElementById('btn-new-order');
   const customerNameInput = document.getElementById('order-customer-name');
+  const gstNumberInput = document.getElementById('order-gst-number');
+  const taxTypeInput = document.getElementById('order-tax-type');
+  const mobileNumberInput = document.getElementById('order-mobile-number');
+  const addressInput = document.getElementById('order-address');
   const createdByInput = document.getElementById('order-created-by');
   const checkedByInput = document.getElementById('order-checked-by');
   const btnAddManualItem = document.getElementById('btn-add-manual-item');
+  const btnToggleOrderSetup = document.getElementById('btn-toggle-order-setup');
+  const orderSetupContent = document.getElementById('order-setup-content');
+  const accordionChevron = document.getElementById('accordion-chevron');
+
+  // Accordion Expand/Collapse Toggle
+  if (btnToggleOrderSetup && orderSetupContent) {
+    btnToggleOrderSetup.addEventListener('click', () => {
+      const isExpanded = btnToggleOrderSetup.getAttribute('aria-expanded') === 'true';
+      if (isExpanded) {
+        orderSetupContent.classList.add('hidden');
+        btnToggleOrderSetup.setAttribute('aria-expanded', 'false');
+        btnToggleOrderSetup.classList.remove('border-b');
+        if (accordionChevron) {
+          accordionChevron.classList.remove('rotate-180');
+          accordionChevron.classList.add('rotate-0');
+        }
+      } else {
+        orderSetupContent.classList.remove('hidden');
+        btnToggleOrderSetup.setAttribute('aria-expanded', 'true');
+        btnToggleOrderSetup.classList.add('border-b');
+        if (accordionChevron) {
+          accordionChevron.classList.remove('rotate-0');
+          accordionChevron.classList.add('rotate-180');
+        }
+      }
+    });
+  }
 
   // Customer Name Binding
   if (customerNameInput) {
     customerNameInput.addEventListener('input', (e) => {
       updateOrderMeta({ customerName: e.target.value });
+      updateSaveSaleInvoiceButtonState();
+    });
+  }
+
+  // GST Number Binding
+  if (gstNumberInput) {
+    gstNumberInput.addEventListener('input', (e) => {
+      updateOrderMeta({ gstNumber: e.target.value });
+    });
+  }
+
+  // Tax Type Binding
+  if (taxTypeInput) {
+    taxTypeInput.addEventListener('change', (e) => {
+      updateOrderMeta({ taxType: e.target.value });
+    });
+  }
+
+  // Mobile Number Binding
+  if (mobileNumberInput) {
+    mobileNumberInput.addEventListener('input', (e) => {
+      updateOrderMeta({ mobileNumber: e.target.value });
+    });
+  }
+
+  // Address Binding
+  if (addressInput) {
+    addressInput.addEventListener('input', (e) => {
+      updateOrderMeta({ address: e.target.value });
     });
   }
 
@@ -744,6 +815,10 @@ export function clearAllImages(showNotification = true) {
 
   const fileInput = document.getElementById('order-image-input');
   const customerNameInput = document.getElementById('order-customer-name');
+  const gstNumberInput = document.getElementById('order-gst-number');
+  const taxTypeInput = document.getElementById('order-tax-type');
+  const mobileNumberInput = document.getElementById('order-mobile-number');
+  const addressInput = document.getElementById('order-address');
   const createdByInput = document.getElementById('order-created-by');
   const checkedByInput = document.getElementById('order-checked-by');
   const orderNumberInput = document.getElementById('order-number-display');
@@ -752,11 +827,16 @@ export function clearAllImages(showNotification = true) {
 
   const fresh = resetOrder();
   if (customerNameInput) customerNameInput.value = '';
+  if (gstNumberInput) gstNumberInput.value = '';
+  if (taxTypeInput) taxTypeInput.value = '';
+  if (mobileNumberInput) mobileNumberInput.value = '';
+  if (addressInput) addressInput.value = '';
   if (createdByInput) createdByInput.value = '';
   if (checkedByInput) checkedByInput.value = '';
   if (orderNumberInput) orderNumberInput.textContent = fresh.orderNo;
 
   renderImageGallery();
+  updateSaveSaleInvoiceButtonState();
 
   if (showNotification) {
     showToast('All images removed and order session reset.', 'info');
@@ -1403,11 +1483,28 @@ function renderQuickSearchResults(searchResult) {
 
   // Attach "+ Add to Order" handlers
   resultsContainer.querySelectorAll('[data-add-to-order]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const partNo = btn.dataset.addToOrder;
       const product = searchResult.items.find(p => p.partNumber === partNo);
       if (product) {
-        showAddToOrderModal(product);
+        const added = await showAddToOrderModal(product);
+        if (added) {
+          const searchInput = document.getElementById('finder-search-input');
+          if (searchInput) {
+            searchInput.value = '';
+          }
+          await loadQuickSearchInitial();
+
+          const restoreSearchFocus = () => {
+            const input = document.getElementById('finder-search-input');
+            if (input) {
+              input.focus();
+            }
+          };
+
+          restoreSearchFocus();
+          setTimeout(restoreSearchFocus, 250);
+        }
       }
     });
   });
