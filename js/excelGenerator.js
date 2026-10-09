@@ -73,8 +73,9 @@ export async function buildBusyOrderWorkbook(order) {
     row.action
   ]);
 
-  // 2. Easy Software Format Sheet (6 columns: Item Details, Qty., Unit, MRP, Rack, Group)
+  // 2. Easy Software Format Sheet (7 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group)
   const easyHeaders = [
+    'SR. No',
     'Item Details',
     'Qty.',
     'Unit',
@@ -83,7 +84,8 @@ export async function buildBusyOrderWorkbook(order) {
     'Group'
   ];
 
-  const easyRows = exportRows.map(row => [
+  const easyRows = exportRows.map((row, idx) => [
+    idx + 1,
     row.exactItemName || row.customerText,
     formatStockQty(row.qty),
     row.unit || 'Pcs.',
@@ -114,9 +116,10 @@ export async function buildBusyOrderWorkbook(order) {
     ];
     XLSX.utils.book_append_sheet(wb, wsBusy, 'Busy Entry Sheet');
 
-    // Sheet 2: Easy Software Format (6 columns: Item Details, Qty., Unit, MRP, Rack, Group)
+    // Sheet 2: Easy Software Format (7 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group)
     const wsEasy = XLSX.utils.aoa_to_sheet([easyHeaders, ...easyRows]);
     wsEasy['!cols'] = [
+      { wch: 8 },  // SR. No
       { wch: 46 }, // Item Details
       { wch: 12 }, // Qty.
       { wch: 10 }, // Unit
@@ -264,6 +267,7 @@ export function exportStockMasterExcel(products, customFilename = null) {
   const filename = customFilename || `Maharashtra_Automobile_Stock_List_${new Date().toISOString().split('T')[0]}.xlsx`;
 
   const headers = [
+    'SR. No',
     'Item Details',
     'Qty.',
     'Unit',
@@ -272,7 +276,7 @@ export function exportStockMasterExcel(products, customFilename = null) {
     'Group'
   ];
 
-  const dataRows = products.map(p => {
+  const dataRows = products.map((p, idx) => {
     // Exact Item Details name string
     let itemDetails = '';
     if (p.itemDetails) {
@@ -294,6 +298,7 @@ export function exportStockMasterExcel(products, customFilename = null) {
     const group = (p.parentGroup || p.group || '').trim();
 
     return [
+      idx + 1,
       itemDetails,
       qty,
       unit,
@@ -309,6 +314,7 @@ export function exportStockMasterExcel(products, customFilename = null) {
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
     ws['!cols'] = [
+      { wch: 8 },  // SR. No
       { wch: 48 }, // Item Details
       { wch: 12 }, // Qty.
       { wch: 10 }, // Unit

@@ -102,8 +102,8 @@ export async function prepareBusyExportRows(order) {
       const rawRack = matchedProd.rack !== null && matchedProd.rack !== undefined ? String(matchedProd.rack).trim() : '';
       rackNo = (rawRack === '-' || rawRack === '—') ? '' : rawRack;
 
-      // 6. Group: from Product Master, blank if missing
-      const rawGroup = matchedProd.parentGroup || matchedProd.group || item.matchedProduct?.parentGroup || item.matchedProduct?.group || '';
+      // 6. Group: from Product Master or order item, blank if missing
+      const rawGroup = matchedProd.parentGroup || matchedProd.group || item.matchedProduct?.parentGroup || item.matchedProduct?.group || item.parentGroup || item.group || '';
       group = (rawGroup === '-' || rawGroup === '—') ? '' : String(rawGroup).trim();
 
       // 7. Confidence
@@ -127,6 +127,8 @@ export async function prepareBusyExportRows(order) {
       exactItemName = customerText ? `[UNMATCHED] ${customerText}` : '[UNMATCHED]';
       action = 'Unmatched';
       confidence = '0%';
+      const fallbackGroup = item.parentGroup || item.group || item.matchedProduct?.parentGroup || item.matchedProduct?.group || '';
+      group = (fallbackGroup === '-' || fallbackGroup === '—') ? '' : String(fallbackGroup).trim();
     }
 
     exportRows.push({

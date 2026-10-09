@@ -141,6 +141,92 @@ export function isQRPayload(text) {
 }
 
 /**
+ * Helper to determine if a product belongs to the BAJAJ group.
+ * Inspects both parentGroup and group fields independently for maximum safety.
+ */
+export function isBajajProduct(product) {
+  if (!product) return false;
+  const pGroup = String(product.parentGroup || '').trim().toUpperCase();
+  const grp = String(product.group || '').trim().toUpperCase();
+  return pGroup.includes('BAJAJ') || grp.includes('BAJAJ');
+}
+
+/**
+ * Checks if a scanned value or token corresponds to a BAJAJ product in the Product Master
+ * with an appended QR scanner suffix (e.g. "DJ201202-1_715" -> "DJ201202").
+ *
+ * Rules:
+ * 1. Must contain '-'
+ * 2. If the full text already exactly matches an existing part number in master, returns null (no stripping)
+ * 3. Inspects candidate base part numbers before '-' from right to left
+ * 4. Suffix after '-' must not be empty
+ * 5. Candidate base part number must match an existing Product Master record belonging to BAJAJ
+ *
+ * @param {string} rawText - Scanned value or candidate token
+ * @returns {string|null} The exact Product Master Part Number if matched to BAJAJ; otherwise null
+ */
+export function findBajajPartNumberInMaster(rawText) {
+  if (!rawText || typeof rawText !== 'string') return null;
+  const text = rawText.trim();
+  if (!text.includes('-')) return null;
+
+  // If the complete text already matches an exact product in master, do not strip anything
+  const fullNorm = normalizePartNumber(text);
+  if (partNumberMap && partNumberMap.has(fullNorm)) {
+    return null;
+  }
+
+  // Find all hyphen positions
+  const hyphenIndices = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '-') {
+      hyphenIndices.push(i);
+    }
+  }
+
+  // Test candidate base part numbers before hyphens, from rightmost hyphen backwards
+  for (let idx = hyphenIndices.length - 1; idx >= 0; idx--) {
+    const hyphenPos = hyphenIndices[idx];
+    const candidatePrefix = text.substring(0, hyphenPos).trim();
+    const suffix = text.substring(hyphenPos + 1).trim();
+
+    // Suffix must not be empty (e.g. ignore dangling '-')
+    if (!candidatePrefix || !suffix) continue;
+
+    // Check 1: Direct normalized match in partNumberMap (O(1))
+    const normCandidate = normalizePartNumber(candidatePrefix);
+    if (partNumberMap && partNumberMap.has(normCandidate)) {
+      const products = partNumberMap.get(normCandidate);
+      const bajajProduct = products.find(p => isBajajProduct(p));
+      if (bajajProduct) {
+        return bajajProduct.partNumber || candidatePrefix;
+      }
+    }
+
+    // Check 2: Clean alphanumeric match in cleanPartNumberMap
+    const cleanCandidate = normCandidate.replace(/[^A-Z0-9]/g, '');
+    if (cleanCandidate.length >= 3 && cleanPartNumberMap && cleanPartNumberMap.has(cleanCandidate)) {
+      const products = cleanPartNumberMap.get(cleanCandidate);
+      const bajajProduct = products.find(p => isBajajProduct(p));
+      if (bajajProduct) {
+        return bajajProduct.partNumber || candidatePrefix;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Async convenience wrapper for findBajajPartNumberInMaster ensuring cache is loaded
+ */
+export async function extractBajajPartNumber(rawText) {
+  if (!rawText || typeof rawText !== 'string' || !rawText.includes('-')) return null;
+  await getCachedProducts();
+  return findBajajPartNumberInMaster(rawText);
+}
+
+/**
  * Intelligently extracts the Part Number from a scanned QR payload or raw text.
  * - Does NOT assume a fixed token position.
  * - Inspects existing product master and compares meaningful tokens against product Part Numbers.
@@ -158,10 +244,29 @@ export async function extractPartNumberFromScannedText(rawText) {
   // If not a delimited payload, treat trimmed string as part number directly
   if (!isQRPayload(trimmed)) {
     const norm = normalizePartNumber(trimmed);
+    if (partNumberMap.has(norm)) {
+      return {
+        partNumber: trimmed,
+        isScanner: false,
+        matchedInMaster: true
+      };
+    }
+
+    // BAJAJ QR Part-Number Normalization:
+    // If scanned value contains a BAJAJ base part number followed by scanner suffix (e.g. DJ201202-1_715)
+    const bajajPartNumber = findBajajPartNumberInMaster(trimmed);
+    if (bajajPartNumber) {
+      return {
+        partNumber: bajajPartNumber,
+        isScanner: true,
+        matchedInMaster: true
+      };
+    }
+
     return {
       partNumber: trimmed,
       isScanner: false,
-      matchedInMaster: partNumberMap.has(norm)
+      matchedInMaster: false
     };
   }
 
@@ -190,6 +295,18 @@ export async function extractPartNumberFromScannedText(rawText) {
     if (partNumberMap.has(norm)) {
       return {
         partNumber: token,
+        isScanner: true,
+        matchedInMaster: true
+      };
+    }
+  }
+
+  // 1b. BAJAJ NORMALIZATION PASS: Check if any token matches a BAJAJ Part Number with QR suffix
+  for (const token of rawTokens) {
+    const bajajPartNumber = findBajajPartNumberInMaster(token);
+    if (bajajPartNumber) {
+      return {
+        partNumber: bajajPartNumber,
         isScanner: true,
         matchedInMaster: true
       };

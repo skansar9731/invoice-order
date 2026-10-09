@@ -2,7 +2,7 @@
  * Main Application Controller & Event Coordinator
  */
 
-import { getDB, clearProductStore, countProducts, getAllProducts, upsertProducts } from './db.js';
+import { getDB, clearProductStore, countProducts, getAllProducts, upsertProducts, generateUniqueId } from './db.js';
 import { INITIAL_PRODUCTS } from './sampleData.js';
 import { extractOrderFromImage, getAIConfig, saveAIConfig, getAIStatus } from './aiService.js';
 import { matchAllOrderItems } from './matchingEngine.js';
@@ -13,6 +13,7 @@ import {
   updateOrderMeta,
   setOrderItems,
   addOrderItem,
+  addNewOrderProduct,
   subscribeOrder,
   loadOrderFromStorage
 } from './orderManager.js';
@@ -34,6 +35,8 @@ import {
   searchLocalProducts,
   searchExactPartNumber,
   extractPartNumberFromScannedText,
+  findBajajPartNumberInMaster,
+  getCachedProducts,
   isQRPayload,
   debounce,
   invalidateSearchCache
@@ -482,6 +485,12 @@ function initOrderEntryEvents() {
             prefix: '₹',
             type: 'text',
             inputmode: 'decimal'
+          },
+          {
+            id: 'group',
+            label: 'Group Name',
+            placeholder: 'e.g. BAJAJ or HERO',
+            required: true
           }
         ],
         confirmText: 'Add to Order',
@@ -489,19 +498,46 @@ function initOrderEntryEvents() {
         icon: '➕'
       });
 
-      if (result && result.itemName && result.itemName.trim()) {
+      if (result && result.itemName && result.itemName.trim() && result.group && result.group.trim()) {
+        const itemName = result.itemName.trim();
+        const group = result.group.trim();
         const qty = parseInt(result.quantity, 10) || 1;
+        const finalQty = Math.max(1, qty);
         const rawRate = result.rate ? String(result.rate).replace(/[^0-9.]/g, '').trim() : '';
         const parsedRate = rawRate !== '' ? parseFloat(rawRate) : null;
         const rate = (parsedRate !== null && !isNaN(parsedRate)) ? parsedRate : null;
 
-        addOrderItem(result.itemName.trim(), Math.max(1, qty), rate);
+        // 1. Create product using existing data structure
+        const newProduct = {
+          id: generateUniqueId(),
+          partNumber: itemName,
+          productName: itemName,
+          itemDetails: itemName,
+          stockQty: finalQty,
+          unit: 'Pcs.',
+          rate: rate,
+          mrp: rate,
+          rack: '',
+          group: group,
+          parentGroup: group
+        };
+
+        // 2. Save into existing stock/product storage (IndexedDB STORE_PRODUCTS)
+        try {
+          await upsertProducts([newProduct], false);
+          await refreshDashboardStats();
+        } catch (dbErr) {
+          console.error('Failed to save manual product to stock store:', dbErr);
+        }
+
+        // 3. Add to active order preserving Group and Stock product connection
+        addNewOrderProduct(newProduct, finalQty, rate);
         renderOrderTable();
 
-        const formattedQty = Math.max(1, qty);
+        const formattedQty = finalQty;
         const formattedRate = rate !== null ? `₹${Number(rate).toLocaleString('en-IN')}` : null;
         showToast({
-          title: `Added "${result.itemName.trim()}" to order`,
+          title: `Added "${itemName}" to order`,
           qty: formattedQty,
           ...(formattedRate ? { rate: formattedRate } : {})
         }, 'success');
@@ -1239,6 +1275,8 @@ function initQuickSearchEvents() {
   const searchInput = document.getElementById('finder-search-input');
   if (!searchInput) return;
 
+  getCachedProducts(); // Prime in-memory product maps for instant scanner lookup
+
   let lastKeyTime = 0;
   let rapidKeyCount = 0;
   let isScannerTyping = false;
@@ -1283,7 +1321,7 @@ function initQuickSearchEvents() {
       clearTimeout(manualDebounceTimer);
 
       const val = searchInput.value;
-      if (isQRPayload(val) || isScannerTyping) {
+      if (isQRPayload(val) || isScannerTyping || findBajajPartNumberInMaster(val)) {
         processScannerPayload(val);
       } else {
         // Manual search trigger on Enter
@@ -1303,6 +1341,14 @@ function initQuickSearchEvents() {
     // 1. Delimited QR payload pattern detected (e.g. '/' separated fields)
     if (isQRPayload(val)) {
       // Wait 60ms for scanner to finish transmitting all characters
+      scannerTimer = setTimeout(() => {
+        processScannerPayload(searchInput.value);
+      }, 60);
+      return;
+    }
+
+    // 1b. BAJAJ QR suffix pattern detected for existing BAJAJ product
+    if (findBajajPartNumberInMaster(val)) {
       scannerTimer = setTimeout(() => {
         processScannerPayload(searchInput.value);
       }, 60);

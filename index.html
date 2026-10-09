@@ -64,10 +64,10 @@
 </head>
 
 <body
-  class="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans antialiased selection:bg-slate-900 selection:text-white overflow-y-auto overflow-x-hidden">
+  class="bg-slate-50 text-slate-900 min-h-screen flex flex-col font-sans antialiased selection:bg-slate-900 selection:text-white">
 
   <!-- TOP HEADER -->
-  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
+  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
 
@@ -208,22 +208,25 @@
     <section id="tab-order" class="tab-content space-y-6">
 
       <!-- Collapsible Order Setup Accordion (Upload + Order Details) -->
-      <div id="order-setup-accordion" class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all duration-200">
+      <div id="order-setup-accordion"
+        class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all duration-200">
 
         <!-- Accordion Header -->
-        <button type="button" id="btn-toggle-order-setup"
-          aria-expanded="true" aria-controls="order-setup-content"
+        <button type="button" id="btn-toggle-order-setup" aria-expanded="true" aria-controls="order-setup-content"
           class="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-50/70 transition cursor-pointer select-none border-b border-slate-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-slate-800">
           <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-bold text-base shrink-0 shadow-2xs">
+            <div
+              class="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-bold text-base shrink-0 shadow-2xs">
               📋
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h2 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Order &amp; Customer Details</h2>
+                <h2 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Order &amp; Customer Details
+                </h2>
                 <span class="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Step 1</span>
               </div>
-              <p class="text-xs text-slate-500 mt-0.5 hidden sm:block">Upload handwritten order slips and configure customer details</p>
+              <p class="text-xs text-slate-500 mt-0.5 hidden sm:block">Upload handwritten order slips and configure
+                customer details</p>
             </div>
           </div>
 
@@ -233,8 +236,10 @@
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>AI Vision Active</span>
             </span>
-            <div id="accordion-chevron-wrapper" class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
-              <svg id="accordion-chevron" class="w-4 h-4 transform transition-transform duration-300 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div id="accordion-chevron-wrapper"
+              class="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-600 transition">
+              <svg id="accordion-chevron" class="w-4 h-4 transform transition-transform duration-300 rotate-180"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
               </svg>
             </div>
@@ -307,7 +312,8 @@
             </div>
 
             <!-- RIGHT: Order Details (6 / 12 columns on desktop) -->
-            <div class="lg:col-span-6 bg-slate-50 rounded-xl border border-slate-200 p-4 sm:p-5 space-y-3.5 flex flex-col justify-between">
+            <div
+              class="lg:col-span-6 bg-slate-50 rounded-xl border border-slate-200 p-4 sm:p-5 space-y-3.5 flex flex-col justify-between">
               <div class="flex items-center justify-between">
                 <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">Order Details</span>
                 <span id="order-number-display"
@@ -493,12 +499,14 @@
           <!-- Desktop Table View (Visible on screens >= 768px) -->
           <div class="responsive-table-view order-table-scroll-container overflow-x-auto relative">
             <table class="w-full text-left text-xs border-collapse">
-              <thead class="sticky top-0 z-20 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs">
+              <thead
+                class="sticky top-0 z-20 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 shadow-2xs">
                 <tr>
                   <th class="px-3 py-3 text-center w-10 sticky top-0 bg-slate-100 z-20">S.No</th>
                   <th class="px-3 py-3 min-w-[170px] sticky top-0 bg-slate-100 z-20">Item Description &amp; Part No</th>
                   <th class="px-3 py-3 text-center w-24 sticky top-0 bg-slate-100 z-20">Qty</th>
-                  <th class="px-3 py-3 min-w-[280px] sticky top-0 bg-slate-100 z-20">Item Details (Matched from Original Stock)</th>
+                  <th class="px-3 py-3 min-w-[280px] sticky top-0 bg-slate-100 z-20">Item Details (Matched from Original
+                    Stock)</th>
                   <th class="px-3 py-3 text-center w-20 sticky top-0 bg-slate-100 z-20">Stock</th>
                   <th class="px-3 py-3 text-center w-16 sticky top-0 bg-slate-100 z-20">Unit</th>
                   <th class="px-3 py-3 text-center w-20 sticky top-0 bg-slate-100 z-20">MRP</th>
@@ -1099,19 +1107,22 @@
         <!-- Header -->
         <div class="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-base">
+            <div
+              class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-base">
               🏷️
             </div>
             <div>
               <h3 class="text-sm sm:text-base font-extrabold text-slate-900 leading-tight">
                 Group Discount
               </h3>
-              <span id="group-discount-progress" class="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 inline-block mt-0.5">
+              <span id="group-discount-progress"
+                class="text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 inline-block mt-0.5">
                 Group 1 of 1
               </span>
             </div>
           </div>
-          <button id="btn-group-discount-close" type="button" class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
+          <button id="btn-group-discount-close" type="button"
+            class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
             ✕
           </button>
         </div>
@@ -1138,7 +1149,8 @@
             <div class="relative">
               <input type="number" id="group-discount-input" min="0" max="100" step="0.5" value="0" placeholder="0"
                 class="w-full text-base font-extrabold pl-3.5 pr-10 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-blue-600 focus:outline-none transition">
-              <span class="absolute inset-y-0 right-3.5 flex items-center text-slate-500 font-extrabold text-sm pointer-events-none">
+              <span
+                class="absolute inset-y-0 right-3.5 flex items-center text-slate-500 font-extrabold text-sm pointer-events-none">
                 %
               </span>
             </div>
@@ -1149,12 +1161,14 @@
           </div>
 
           <!-- Missed Products Badge/Status -->
-          <div id="group-discount-missed-badge" class="hidden p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
+          <div id="group-discount-missed-badge"
+            class="hidden p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
             <span class="text-emerald-800 font-semibold flex items-center gap-1.5">
               <span>✓</span>
               <span id="group-discount-missed-badge-text">0 missed products added</span>
             </span>
-            <button type="button" id="btn-group-discount-view-missed" class="text-emerald-700 hover:text-emerald-900 font-bold underline">
+            <button type="button" id="btn-group-discount-view-missed"
+              class="text-emerald-700 hover:text-emerald-900 font-bold underline">
               View / Edit
             </button>
           </div>
@@ -1186,7 +1200,8 @@
         <!-- Header -->
         <div class="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
           <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-base">
+            <div
+              class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-base">
               📄
             </div>
             <div>
@@ -1198,7 +1213,8 @@
               </p>
             </div>
           </div>
-          <button id="btn-missed-products-close" type="button" class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
+          <button id="btn-missed-products-close" type="button"
+            class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
             ✕
           </button>
         </div>
@@ -1247,7 +1263,8 @@
                     <span>Unit: <b id="missed-selected-unit">Pcs.</b></span>
                   </div>
                 </div>
-                <button type="button" id="btn-missed-clear-selection" class="text-slate-400 hover:text-slate-600 text-xs font-bold">
+                <button type="button" id="btn-missed-clear-selection"
+                  class="text-slate-400 hover:text-slate-600 text-xs font-bold">
                   ✕
                 </button>
               </div>
@@ -1287,7 +1304,8 @@
               </span>
             </div>
             <div id="missed-products-list-container" class="space-y-1.5">
-              <div id="missed-products-empty-msg" class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 text-center">
+              <div id="missed-products-empty-msg"
+                class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 text-center">
                 No missed products added yet (optional). You can add items or proceed directly to generate the PDF.
               </div>
             </div>
@@ -1323,7 +1341,8 @@
       <!-- Header -->
       <div class="p-5 border-b border-slate-100 bg-emerald-50/50 flex items-start justify-between">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl shadow-2xs font-bold">
+          <div
+            class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl shadow-2xs font-bold">
             ✓
           </div>
           <div>
@@ -1335,7 +1354,8 @@
             </p>
           </div>
         </div>
-        <button id="btn-sale-invoice-success-close-x" type="button" class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
+        <button id="btn-sale-invoice-success-close-x" type="button"
+          class="text-slate-400 hover:text-slate-700 text-lg font-bold p-1 transition" title="Close">
           ✕
         </button>
       </div>
@@ -1347,11 +1367,13 @@
             📄
           </div>
           <div class="flex-1 min-w-0">
-            <div id="sale-invoice-success-filename" class="text-xs sm:text-sm font-mono font-bold text-slate-900 truncate">
+            <div id="sale-invoice-success-filename"
+              class="text-xs sm:text-sm font-mono font-bold text-slate-900 truncate">
               Customer.pdf
             </div>
             <div class="flex items-center gap-2 mt-1">
-              <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded">
+              <span
+                class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded">
                 <span>●</span> Local PDF File Saved
               </span>
             </div>

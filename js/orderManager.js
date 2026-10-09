@@ -175,15 +175,17 @@ export function setOrderItems(items = []) {
   notifyListeners();
 }
 
-export function addOrderItem(customerTextOrItem, quantity = 1, rate = null) {
+export function addOrderItem(customerTextOrItem, quantity = 1, rate = null, group = null) {
   let customerText = '';
   let partNumber = '';
   let itemDescription = '';
+  let groupVal = '';
 
   if (typeof customerTextOrItem === 'object' && customerTextOrItem !== null) {
     partNumber = String(customerTextOrItem.partNumber || '').trim();
     itemDescription = String(customerTextOrItem.itemDescription || '').trim();
     customerText = String(customerTextOrItem.customerText || itemDescription || partNumber).trim();
+    groupVal = String(customerTextOrItem.group || customerTextOrItem.parentGroup || group || '').trim();
     if (customerTextOrItem.quantity !== undefined && quantity === 1) {
       quantity = customerTextOrItem.quantity;
     }
@@ -193,6 +195,7 @@ export function addOrderItem(customerTextOrItem, quantity = 1, rate = null) {
   } else {
     customerText = String(customerTextOrItem || '').trim();
     itemDescription = customerText;
+    groupVal = String(group || '').trim();
   }
 
   const parsedQty = parseFloat(quantity);
@@ -211,6 +214,8 @@ export function addOrderItem(customerTextOrItem, quantity = 1, rate = null) {
     customerText: customerText,
     quantity: finalQty,
     rate: finalRate,
+    group: groupVal,
+    parentGroup: groupVal,
     matchedProduct: null,
     matchMethod: 'NONE',
     matchStatus: 'UNMATCHED',
@@ -296,6 +301,8 @@ export function addNewOrderProduct(product, quantity = 1, rate = null) {
     id: 'item-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
     sNo: currentOrder.items.length + 1,
     customerText: customerText.trim(),
+    itemDescription: customerText.trim(),
+    partNumber: (product.partNumber || '').trim(),
     quantity: finalQty,
     rate: finalRate,
     group: groupVal,
@@ -315,6 +322,8 @@ export function addNewOrderProduct(product, quantity = 1, rate = null) {
     confidence: 100,
     tier: 'HIGH',
     isManual: true,
+    matchMethod: 'MANUAL',
+    matchStatus: 'MANUAL',
     candidates: []
   };
 
@@ -477,6 +486,13 @@ export async function rematchItem(itemId) {
     item.tier = match.tier;
     item.isManual = false;
     item.candidates = match.candidates;
+    if (match.matchedProduct) {
+      const gVal = (match.matchedProduct.parentGroup || match.matchedProduct.group || '').trim();
+      if (gVal) {
+        item.group = gVal;
+        item.parentGroup = gVal;
+      }
+    }
     notifyListeners();
   }
 }
