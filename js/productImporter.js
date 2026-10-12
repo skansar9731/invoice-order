@@ -368,7 +368,8 @@ export async function extractProductsFromExcel(file, onProgress = null) {
     unit: -1,
     mrp: -1,
     rack: -1,
-    group: -1
+    group: -1,
+    discount: -1
   };
 
   for (let r = 0; r < Math.min(rows.length, 10); r++) {
@@ -394,6 +395,8 @@ export async function extractProductsFromExcel(file, onProgress = null) {
           if (colIndexMap.rack === -1) colIndexMap.rack = cIdx;
         } else if (cell.includes('group')) {
           if (colIndexMap.group === -1) colIndexMap.group = cIdx;
+        } else if (cell.includes('discount') || cell.includes('disc')) {
+          if (colIndexMap.discount === -1) colIndexMap.discount = cIdx;
         }
       });
       break;
@@ -442,6 +445,7 @@ export async function extractProductsFromExcel(file, onProgress = null) {
     const rawMrp = colIndexMap.mrp !== -1 ? row[colIndexMap.mrp] : '';
     const rawRack = colIndexMap.rack !== -1 ? String(row[colIndexMap.rack] || '').trim() : '';
     const rawGroup = colIndexMap.group !== -1 ? String(row[colIndexMap.group] || '').trim() : '';
+    const rawDiscount = colIndexMap.discount !== -1 ? row[colIndexMap.discount] : '';
 
     const parsed = parseNameField(rawItemDetails);
     if (!parsed.partNumber && !parsed.productName) {
@@ -463,6 +467,13 @@ export async function extractProductsFromExcel(file, onProgress = null) {
       if (!isNaN(numMrp)) rate = numMrp;
     }
 
+    let discount = null;
+    if (rawDiscount !== null && rawDiscount !== undefined && String(rawDiscount).trim() !== '') {
+      const cleanDisc = String(rawDiscount).replace(/%/g, '').trim();
+      const numDisc = parseFloat(cleanDisc);
+      if (!isNaN(numDisc)) discount = numDisc;
+    }
+
     const rack = (rawRack === '-' || rawRack === '—') ? '' : rawRack;
     const unit = (rawUnit === '-' || rawUnit === '—') ? '' : (rawUnit || 'Pcs.');
     const group = (rawGroup === '-' || rawGroup === '—') ? '' : rawGroup;
@@ -480,6 +491,7 @@ export async function extractProductsFromExcel(file, onProgress = null) {
       rack,
       rate,
       mrp: rate,
+      discount,
       page: 1,
       sourceRow: r + 1
     };

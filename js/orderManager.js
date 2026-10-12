@@ -19,6 +19,7 @@ let currentOrder = {
   orderTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   imagePreviewUrl: null,
   items: [],
+  discounts: {},
   notes: ''
 };
 
@@ -55,6 +56,7 @@ export function loadOrderFromStorage() {
             orderTime: parsed.orderTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             imagePreviewUrl: parsed.imagePreviewUrl || null,
             items: Array.isArray(parsed.items) ? parsed.items : [],
+            discounts: (parsed.discounts && typeof parsed.discounts === 'object') ? parsed.discounts : {},
             notes: parsed.notes || ''
           };
           notifyListeners();
@@ -116,6 +118,7 @@ export function loadOrder(orderData) {
     orderTime: orderData.orderTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     imagePreviewUrl: orderData.imagePreviewUrl || null,
     items: Array.isArray(orderData.items) ? orderData.items : [],
+    discounts: (orderData.discounts && typeof orderData.discounts === 'object') ? orderData.discounts : {},
     notes: orderData.notes || ''
   };
   notifyListeners();
@@ -153,6 +156,7 @@ export function resetOrder(customerName = '', createdBy = '', checkedBy = '', gs
     orderTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     imagePreviewUrl: null,
     items: [],
+    discounts: {},
     notes: ''
   };
   notifyListeners();

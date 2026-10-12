@@ -10,7 +10,7 @@
  * 7. Opening generated PDF directly in browser
  */
 
-import { getCurrentOrder } from './orderManager.js';
+import { getCurrentOrder, updateOrderMeta } from './orderManager.js';
 import { getAllProducts } from './db.js';
 import { searchLocalProducts } from './productSearch.js';
 import { showToast } from './ui.js';
@@ -247,9 +247,11 @@ export async function startSaveSaleInvoiceWorkflow() {
     missedProducts: []
   };
 
-  // Initialize all group discounts to 0
+  // Initialize group discounts, keeping existing order discounts if previously configured
   uniqueGroups.forEach(g => {
-    activeDiscountWorkflow.discounts[g] = 0;
+    activeDiscountWorkflow.discounts[g] = (order.discounts && order.discounts[g] !== undefined)
+      ? Number(order.discounts[g])
+      : 0;
   });
 
   // Reset selected missed product
@@ -405,6 +407,13 @@ async function handleGroupDiscountNext() {
   const currentGroup = groups[currentIndex];
   activeDiscountWorkflow.discounts[currentGroup] = numVal;
 
+  // Persist entered discount to active order so Excel export reflects it
+  const liveOrder = getCurrentOrder();
+  if (liveOrder) {
+    const updatedDiscounts = { ...(liveOrder.discounts || {}), [currentGroup]: numVal };
+    updateOrderMeta({ discounts: updatedDiscounts });
+  }
+
   if (currentIndex < groups.length - 1) {
     // Proceed to next group
     activeDiscountWorkflow.currentIndex++;
@@ -429,6 +438,12 @@ function handleGroupDiscountBack() {
     if (!isNaN(numVal) && numVal >= 0 && numVal <= 100) {
       const currentGroup = activeDiscountWorkflow.groups[activeDiscountWorkflow.currentIndex];
       activeDiscountWorkflow.discounts[currentGroup] = numVal;
+
+      const liveOrder = getCurrentOrder();
+      if (liveOrder) {
+        const updatedDiscounts = { ...(liveOrder.discounts || {}), [currentGroup]: numVal };
+        updateOrderMeta({ discounts: updatedDiscounts });
+      }
     }
 
     activeDiscountWorkflow.currentIndex--;

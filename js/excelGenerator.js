@@ -44,7 +44,7 @@ export async function buildBusyOrderWorkbook(order) {
   const orderNo = order.orderNo || 'ORDER';
   const filename = `${orderNo}_Busy_Entry_Sheet.xlsx`;
 
-  // 1. Busy Sheet (11 columns)
+  // 1. Busy Sheet (12 columns)
   const busyHeaders = [
     'S. No',
     'Customer Handwritten Text',
@@ -55,6 +55,7 @@ export async function buildBusyOrderWorkbook(order) {
     'Available stock',
     'Rack No',
     'Group',
+    'Discount',
     'Confidence',
     'Action'
   ];
@@ -69,11 +70,12 @@ export async function buildBusyOrderWorkbook(order) {
     row.availableStock,
     row.rackNo,
     row.group || '',
+    row.discountNum !== null ? row.discountNum : (row.discount || ''),
     row.confidence,
     row.action
   ]);
 
-  // 2. Easy Software Format Sheet (7 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group)
+  // 2. Easy Software Format Sheet (8 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group, Discount)
   const easyHeaders = [
     'SR. No',
     'Item Details',
@@ -81,7 +83,8 @@ export async function buildBusyOrderWorkbook(order) {
     'Unit',
     'MRP',
     'Rack',
-    'Group'
+    'Group',
+    'Discount'
   ];
 
   const easyRows = exportRows.map((row, idx) => [
@@ -91,7 +94,8 @@ export async function buildBusyOrderWorkbook(order) {
     row.unit || 'Pcs.',
     row.mrpNum !== null ? row.mrpNum : (row.mrp || ''),
     row.rackNo || '',
-    row.group || ''
+    row.group || '',
+    row.discountNum !== null ? row.discountNum : (row.discount || '')
   ]);
 
   let wb = null;
@@ -99,7 +103,7 @@ export async function buildBusyOrderWorkbook(order) {
     const XLSX = window.XLSX;
     wb = XLSX.utils.book_new();
 
-    // Sheet 1: Busy Entry Sheet (11 columns)
+    // Sheet 1: Busy Entry Sheet (12 columns)
     const wsBusy = XLSX.utils.aoa_to_sheet([busyHeaders, ...busyRows]);
     wsBusy['!cols'] = [
       { wch: 8 },  // S. No
@@ -111,12 +115,13 @@ export async function buildBusyOrderWorkbook(order) {
       { wch: 16 }, // Available stock
       { wch: 12 }, // Rack No
       { wch: 16 }, // Group
+      { wch: 12 }, // Discount
       { wch: 14 }, // Confidence
       { wch: 14 }  // Action
     ];
     XLSX.utils.book_append_sheet(wb, wsBusy, 'Busy Entry Sheet');
 
-    // Sheet 2: Easy Software Format (7 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group)
+    // Sheet 2: Easy Software Format (8 columns: SR. No, Item Details, Qty., Unit, MRP, Rack, Group, Discount)
     const wsEasy = XLSX.utils.aoa_to_sheet([easyHeaders, ...easyRows]);
     wsEasy['!cols'] = [
       { wch: 8 },  // SR. No
@@ -125,7 +130,8 @@ export async function buildBusyOrderWorkbook(order) {
       { wch: 10 }, // Unit
       { wch: 12 }, // MRP
       { wch: 14 }, // Rack
-      { wch: 16 }  // Group
+      { wch: 16 }, // Group
+      { wch: 12 }  // Discount
     ];
     XLSX.utils.book_append_sheet(wb, wsEasy, 'Easy Software Format');
 
@@ -273,7 +279,8 @@ export function exportStockMasterExcel(products, customFilename = null) {
     'Unit',
     'MRP',
     'Rack',
-    'Group'
+    'Group',
+    'Discount'
   ];
 
   const dataRows = products.map((p, idx) => {
@@ -296,6 +303,11 @@ export function exportStockMasterExcel(products, customFilename = null) {
     const mrp = (p.rate !== null && p.rate !== undefined && p.rate !== '') ? Number(p.rate) : (p.mrp ? Number(p.mrp) : '');
     const rack = (p.rack && p.rack !== '-' && p.rack !== '—') ? p.rack.trim() : '';
     const group = (p.parentGroup || p.group || '').trim();
+    let discountVal = '';
+    if (p.discount !== null && p.discount !== undefined && p.discount !== '') {
+      const dNum = Number(p.discount);
+      discountVal = !isNaN(dNum) ? dNum : String(p.discount).trim();
+    }
 
     return [
       idx + 1,
@@ -304,7 +316,8 @@ export function exportStockMasterExcel(products, customFilename = null) {
       unit,
       mrp,
       rack,
-      group
+      group,
+      discountVal
     ];
   });
 
@@ -320,7 +333,8 @@ export function exportStockMasterExcel(products, customFilename = null) {
       { wch: 10 }, // Unit
       { wch: 12 }, // MRP
       { wch: 14 }, // Rack
-      { wch: 14 }  // Group
+      { wch: 14 }, // Group
+      { wch: 12 }  // Discount
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Stock List');

@@ -131,6 +131,26 @@ export async function prepareBusyExportRows(order) {
       group = (fallbackGroup === '-' || fallbackGroup === '—') ? '' : String(fallbackGroup).trim();
     }
 
+    // Resolve Discount: from item discount, order-level group discount, or Product Master discount
+    let discount = '';
+    let discountNum = null;
+    const rawItemDisc = (item.discount !== null && item.discount !== undefined && item.discount !== '') ? item.discount : null;
+    const groupDisc = (order && order.discounts && group && order.discounts[group] !== undefined)
+      ? order.discounts[group]
+      : (order && order.groupDiscounts && group && order.groupDiscounts[group] !== undefined ? order.groupDiscounts[group] : null);
+    const rawProdDisc = (matchedProd && matchedProd.discount !== null && matchedProd.discount !== undefined && matchedProd.discount !== '') ? matchedProd.discount : null;
+
+    const effectiveDisc = rawItemDisc !== null ? rawItemDisc : (groupDisc !== null ? groupDisc : rawProdDisc);
+    if (effectiveDisc !== null && effectiveDisc !== undefined && effectiveDisc !== '') {
+      const numDisc = Number(effectiveDisc);
+      if (!isNaN(numDisc)) {
+        discountNum = numDisc;
+        discount = numDisc;
+      } else {
+        discount = String(effectiveDisc).trim();
+      }
+    }
+
     exportRows.push({
       sNo,
       customerText,
@@ -143,6 +163,8 @@ export async function prepareBusyExportRows(order) {
       stockNum,
       rackNo,
       group,
+      discount,
+      discountNum,
       confidence,
       action,
       rawItem: item,

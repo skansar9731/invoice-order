@@ -3,7 +3,7 @@
  * Caches core app shell and external libraries for full offline product matching & PDF generation
  */
 
-const CACHE_NAME = 'maharashtra-autoparts-v14';
+const CACHE_NAME = 'maharashtra-autoparts-v15';
 
 const STATIC_ASSETS = [
   './',
